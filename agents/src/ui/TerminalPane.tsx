@@ -134,6 +134,10 @@ export default function TerminalPane({
     const rect = terminalRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0 || rect.height === 0) return;
     try {
+      // Drop the GPU glyph atlas: it caches bitmaps at the size they were
+      // rasterised, so changing fontSize without clearing leaves xterm scaling
+      // old glyphs into new cells — smeared text and broken box-drawing joins.
+      webglRef.current?.clearTextureAtlas();
       fitAddonRef.current?.fit();
       invoke("resize_terminal", { paneId, rows: t.rows, cols: t.cols }).catch(console.error);
     } catch (e) {

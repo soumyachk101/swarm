@@ -153,6 +153,13 @@ html {
 input, select, textarea {
   color: rgb(var(--swarm-text)) !important;
   caret-color: rgb(var(--swarm-gold));
+  /* The UA paints form fields on an opaque white `field` background. Our glass
+     classes only ever set a SEMI-TRANSPARENT background-image, which is right
+     for a <div> (the dark parent shows through) but on an <input> composites
+     that dark gradient over white — the field turns pale, and the light text
+     forced above it becomes invisible. Clearing the UA colour makes an input
+     layer exactly like every other glass surface. */
+  background-color: transparent;
 }
 
 input:-webkit-autofill,

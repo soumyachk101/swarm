@@ -360,6 +360,12 @@ export default function AgentPane({
       const rect = terminalRef.current?.getBoundingClientRect();
       if (fitAddonRef.current && rect && rect.width > 0 && rect.height > 0) {
         try {
+          // The GPU renderer caches every glyph in a texture atlas keyed by the
+          // size it was rasterised at. Changing fontSize without dropping the
+          // atlas leaves xterm scaling yesterday's bitmaps into today's cells —
+          // smeared text, and box-drawing borders whose corners no longer meet.
+          // Resizing a pane crosses the font-size ladder, so this fires often.
+          webglRef.current?.clearTextureAtlas();
           fitAddonRef.current.fit();
           const { rows, cols } = terminalInstance.current;
           invoke("resize_terminal", { paneId, rows, cols }).catch(console.error);

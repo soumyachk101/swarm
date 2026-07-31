@@ -715,7 +715,16 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
                      them transparent): `.pane-active` widens every side to 2px,
                      so a pane that only had a top border shoved its own contents
                      2px left and up the instant you focused it. */
-                  className={`flex flex-col overflow-hidden glass glass-lift animate-scale-in ${
+                  /* No entrance animation here, deliberately. A pane hosts an
+                     xterm canvas that measures this element to derive its cell
+                     grid, and it does that on mount — i.e. mid-animation. A
+                     transform-based entrance (the scale-in this used to have)
+                     makes getBoundingClientRect report the scaled box, so the
+                     glyph atlas is rasterised for a grid ~3% off and stays
+                     blurry, with box-drawing borders landing off the pixel
+                     grid so their corners never meet. Anything added here must
+                     leave geometry alone. */
+                  className={`flex flex-col overflow-hidden glass glass-lift ${
                     shouldHide
                       ? "hidden"
                       : "relative h-full rounded-lg border-2 border-transparent transition-[box-shadow,border-color,opacity] duration-200"
