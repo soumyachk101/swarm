@@ -4,13 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm, ITerminalOptions } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import { SearchAddon } from "xterm-addon-search";
+import { WebglAddon } from "xterm-addon-webgl";
 import {
-  Terminal,
   Copy,
   Trash2,
   Eraser,
   Maximize2,
   Minimize2,
+  Loader2,
+  AlertTriangle,
   X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -21,9 +23,12 @@ import { PANE_HEADER_CLASS, themeForKind } from "@swarm/board";
 import {
   THEME_CHANGE_EVENT,
   buildXtermThemeFromDom,
+  swarmHex,
 } from "./themeColors.js";
+import { onWindowResize } from "./paneResize.js";
 
-// Plain shell terminal only — cmd / PowerShell / Git Bash / WSL. CLI agents
+// Plain shell terminal only — whatever shell the launcher picked (PowerShell,
+// cmd, Git Bash, WSL, zsh, bash), never a CLI agent. CLI agents
 // (Claude Code, Codex CLI, Aider, Gemini CLI, ...) are a separate, standalone
 // feature; see components/agents/AgentPane.tsx for that.
 interface TerminalPaneProps {
@@ -46,21 +51,24 @@ interface TerminalPaneProps {
   headerExtra?: React.ReactNode;
 }
 
-type TerminalType = "cmd" | "powershell" | "git-bash" | "wsl";
+// The in-pane shell picker this used to have is gone (the launcher chooses the
+// shell now), so the CMD/PowerShell/Git Bash/WSL tables it fed went with it.
+// What's left is the fallback for a generic "shell" pane opened with no command:
+// it was hardcoded to powershell.exe, which on macOS/Linux spawned nothing and
+// left a black rectangle that looked like a broken terminal.
+function defaultShellCommand(): string {
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
+  if (/Windows/i.test(ua)) return "powershell.exe";
+  return /Mac OS X|Macintosh/i.test(ua) ? "zsh" : "bash";
+}
 
-const TERMINAL_LABELS: Record<TerminalType, string> = {
-  cmd: "CMD",
-  powershell: "PowerShell",
-  "git-bash": "Git Bash",
-  wsl: "WSL",
-};
-
-const TERMINAL_COMMANDS: Record<TerminalType, string> = {
-  cmd: "cmd.exe",
-  powershell: "powershell.exe",
-  "git-bash": "bash.exe",
-  wsl: "wsl.exe",
-};
+// xterm's theme with a real opaque background — see AgentPane's paneXtermTheme
+// for the full reasoning. The pane's terminal region paints the same token, so
+// the partial cell fit() leaves at the right/bottom edge blends into it.
+const paneXtermTheme = () => ({
+  ...buildXtermThemeFromDom(),
+  background: swarmHex("--swarm-canvas-hi"),
+});
 
 export default function TerminalPane({
   paneId = "terminal-1",
@@ -82,12 +90,14 @@ export default function TerminalPane({
   const terminalRef = useRef<HTMLDivElement>(null);
   const terminalInstance = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const [, setIsSpawned] = useState(false);
+  // Held outside the terminal effect so the live-theme listener can reach it.
+  const webglRef = useRef<WebglAddon | null>(null);
   const [paneWidth, setPaneWidth] = useState(0);
-  const [selectedTerminal, setSelectedTerminal] = useState<TerminalType>("powershell");
-  // The shell chosen at launch. Cleared when the user picks from the in-pane
-  // menu, so that menu takes over from then on.
-  const [launchCommand, setLaunchCommand] = useState<string | undefined>(shellCommand);
+  // The pane had no state of its own: a shell that failed to spawn wrote one
+  // red line into an otherwise black rectangle, and a slow one showed nothing
+  // at all, which is indistinguishable from "the terminal is broken".
+  const [status, setStatus] = useState<"connecting" | "running" | "error">("connecting");
+  const [errorText, setErrorText] = useState("");
 
   const displayName = tabName || paneId;
   const refitCount = useAgentsStore((s) => s.refitCount);
@@ -108,6 +118,29 @@ export default function TerminalPane({
     }
   }, [refitCount]);
 
+  // Same ladder as AgentPane, so a shell pane and an agent pane sitting side by
+  // side in the grid read at the same size instead of the shell staying at 14px
+  // and wrapping every line. Terminals started at a flat 14px here.
+  const fontSize = paneWidth === 0 ? 14 : paneWidth < 380 ? 11 : paneWidth < 500 ? 12 : 14;
+
+  useEffect(() => {
+    const t = terminalInstance.current;
+    if (!t) return;
+    t.options.fontSize = fontSize;
+    // Only fit against a container that actually has a size — a pane hidden
+    // with `display:none` (the right dock does this to keep its inactive tab's
+    // process alive) measures 0x0, and fitting to that pushes a nonsense grid
+    // to a live pty, reflowing output for a resize the user never made.
+    const rect = terminalRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return;
+    try {
+      fitAddonRef.current?.fit();
+      invoke("resize_terminal", { paneId, rows: t.rows, cols: t.cols }).catch(console.error);
+    } catch (e) {
+      console.warn("Failed to refit terminal after font size change:", e);
+    }
+  }, [fontSize, paneId]);
+
   // Pipes data into the spawned process's stdin.
   const writeToProcess = (data: string) => {
     invoke("write_to_terminal", { paneId, data }).catch((e) =>
@@ -121,14 +154,18 @@ export default function TerminalPane({
     let disposed = false;
     let terminal: XTerm | null = null;
     let onDataDisposable: { dispose: () => void } | null = null;
-    let handleResize: (() => void) | null = null;
+    let unsubscribeResize: (() => void) | null = null;
     let observerRef: ResizeObserver | null = null;
     let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
     let unlistenOutput: UnlistenFn | null = null;
+    let webglAddon: WebglAddon | null = null;
     let spawned = false;
     // Last measured grid — used to tell that layout has stopped moving.
     let lastCols = 0;
     let lastRows = 0;
+    // Last grid actually pushed to the pty, so an unchanged size costs nothing.
+    let lastSyncedCols = 0;
+    let lastSyncedRows = 0;
 
     const hasValidSize = () => {
       if (!terminalRef.current) return false;
@@ -150,7 +187,11 @@ export default function TerminalPane({
       const subscribeOutput = async () => {
         const fn = await listen<{ paneId: string; data: string }>("pty-output", (event) => {
           if (disposed || event.payload.paneId !== paneId || !terminal) return;
-          if (event.payload.data) terminal.write(event.payload.data);
+          if (!event.payload.data) return;
+          terminal.write(event.payload.data);
+          // First byte back from the shell is the only honest "it's alive"
+          // signal — spawn_terminal resolving just means the pty was created.
+          setStatus("running");
         });
         if (disposed) {
           fn();
@@ -172,7 +213,8 @@ export default function TerminalPane({
         fitAddonRef.current?.fit();
         const { rows, cols } = terminal;
         invoke("resize_terminal", { paneId, rows, cols }).catch(console.error);
-        setIsSpawned(true);
+        // Already running — a reattach has nothing new to wait for.
+        setStatus("running");
         return;
       }
 
@@ -190,9 +232,9 @@ export default function TerminalPane({
         }
       }
 
-      // Spawn terminal — the launch-chosen shell wins until the user switches.
+      // Spawn terminal — the shell the launcher picked, else the platform's own.
       try {
-        const command = launchCommand || TERMINAL_COMMANDS[selectedTerminal];
+        const command = shellCommand || defaultShellCommand();
         // Re-fit right before spawn — get_project_path/get_home_dir above is
         // awaited IPC, and if the grid was still settling during that gap,
         // terminal.cols read without one more fit() here is stale.
@@ -210,10 +252,13 @@ export default function TerminalPane({
         });
 
         markSpawned(paneId, workingDir);
-        if (disposed || !terminal) return;
-        setIsSpawned(true);
+        // Status stays "connecting" here on purpose: the pty exists but the
+        // shell has not printed its prompt yet. The pty-output listener flips it.
       } catch (e) {
-        if (!disposed && terminal) {
+        if (disposed) return;
+        setErrorText(String(e));
+        setStatus("error");
+        if (terminal) {
           terminal.writeln(`\x1b[31mFailed to spawn terminal: ${e}\x1b[0m`);
         }
       }
@@ -232,9 +277,10 @@ export default function TerminalPane({
           // for why: box-drawing borders and background-colour fills seam
           // between rows once line height stretches past a single cell.
           lineHeight: 1,
-          theme: buildXtermThemeFromDom(),
-          // Required for the transparent background above to reach the glass.
-          allowTransparency: true,
+          theme: paneXtermTheme(),
+          // Opaque on purpose — see paneXtermTheme. Transparency here forced
+          // xterm onto its alpha-blending path and locked out the GPU renderer.
+          allowTransparency: false,
           rightClickSelectsWord: true,
           scrollback: 1000,
         };
@@ -250,10 +296,31 @@ export default function TerminalPane({
         terminal.open(terminalRef.current!);
         terminalInstance.current = terminal;
 
-        // No WebGL renderer here on purpose. xterm's WebGL addon does not
-        // honour allowTransparency: it paints an opaque backdrop, which would
-        // put a solid rectangle over the pane's glass. The canvas renderer is
-        // marginally slower and is what makes a transparent terminal possible.
+        // GPU renderer — see AgentPane for the reasoning. Registered after
+        // open() because the addon attaches to the live canvas, and wrapped
+        // because both construction (old Safari) and activation (no WebGL2
+        // context, common in VMs and remote sessions) throw rather than
+        // degrade: a slow pane is fine, a pane that throws on mount is not.
+        try {
+          const webgl = new WebglAddon();
+          terminal.loadAddon(webgl);
+          webglAddon = webgl;
+          webglRef.current = webgl;
+          // Sleep/wake and driver resets drop the GL context. xterm does not
+          // recover on its own — without this the pane goes blank for good.
+          webgl.onContextLoss(() => {
+            if (webglAddon === webgl) webglAddon = null;
+            if (webglRef.current === webgl) webglRef.current = null;
+            try {
+              webgl.dispose();
+            } catch {}
+            try {
+              terminal?.refresh(0, (terminal.rows ?? 1) - 1);
+            } catch {}
+          });
+        } catch (e) {
+          console.warn("[TerminalPane] WebGL renderer unavailable, using fallback:", e);
+        }
 
         const fit = () => {
           if (disposed || !terminal) return false;
@@ -269,11 +336,20 @@ export default function TerminalPane({
         const syncSize = () => {
           if (disposed || !terminal) return;
           const { rows, cols } = terminal;
+          // fit() runs on every tick but usually lands on the same grid, and a
+          // pty resize for an unchanged size is a pure IPC round-trip that also
+          // makes the shell redraw its prompt.
+          if (rows === lastSyncedRows && cols === lastSyncedCols) return;
+          lastSyncedRows = rows;
+          lastSyncedCols = cols;
           invoke("resize_terminal", { paneId, rows, cols }).catch(console.error);
         };
 
         const fitAndSync = () => {
           if (resizeDebounce) clearTimeout(resizeDebounce);
+          // Pre-spawn this is the settle window the two-equal-measurements
+          // check rides on, so it stays long; afterwards the tick is only a fit
+          // plus a deduped resize, and 150ms of it made dragging feel sticky.
           resizeDebounce = setTimeout(() => {
             if (disposed || !terminal) return;
             if (hasValidSize()) {
@@ -296,7 +372,7 @@ export default function TerminalPane({
                 }
               }
             }
-          }, 150);
+          }, spawned ? 40 : 150);
         };
 
         // Pipe user keystrokes into the process's stdin.
@@ -304,12 +380,17 @@ export default function TerminalPane({
           writeToProcess(data);
         });
 
-        // Keep the terminal fitted to its container on window resize
-        handleResize = fitAndSync;
-        window.addEventListener("resize", handleResize);
+        // One shared window listener for every pane instead of one each — see
+        // paneResize. The ResizeObserver below stays because it reports this
+        // container's own geometry (grid reflow, maximize, sibling resize),
+        // which no window event does; both funnel into the same debounce so a
+        // window resize that also moves this pane still fits exactly once.
+        unsubscribeResize = onWindowResize(fitAndSync);
 
         const resizeObserver = new ResizeObserver((entries) => {
-          for (const entry of entries) setPaneWidth(entry.contentRect.width);
+          // Rounded: sub-pixel widths would re-render the header every frame of
+          // a drag without ever crossing a font-size threshold.
+          for (const entry of entries) setPaneWidth(Math.round(entry.contentRect.width));
           fitAndSync();
         });
         resizeObserver.observe(terminalRef.current!);
@@ -328,14 +409,17 @@ export default function TerminalPane({
       disposed = true;
       if (resizeDebounce) clearTimeout(resizeDebounce);
       unlistenOutput?.();
-      if (handleResize) window.removeEventListener("resize", handleResize);
+      unsubscribeResize?.();
       observerRef?.disconnect();
       onDataDisposable?.dispose();
 
-      // Dispose WebGL addon first, wrapped in try/catch
-      // This is a known issue with xterm-addon-webgl: dispose() can throw
-      // if the WebGL context was lost or never fully initialized
+      // WebGL addon before the terminal: it owns a GL context and a texture
+      // atlas, and tearing it down under a half-disposed terminal is what makes
+      // dispose() throw. It may also already be gone (context loss).
       try {
+        webglRef.current = null;
+        webglAddon?.dispose();
+        webglAddon = null;
       } catch (e) {
         console.warn('[TerminalPane] Failed to dispose WebGL addon:', e);
       }
@@ -348,19 +432,25 @@ export default function TerminalPane({
       } catch (e) {
         console.warn('[TerminalPane] Failed to dispose terminal:', e);
       } finally {
-        // Always clear the ref even if disposal throws
+        // Always clear the ref even if disposal throws. No setState here — this
+        // also runs on unmount, and the pane it would update is already gone.
         terminalInstance.current = null;
-        setIsSpawned(false);
       }
     };
-  }, [paneId, selectedTerminal, launchCommand, workingDir]);
+  }, [paneId, shellCommand, workingDir]);
 
   useEffect(() => {
     const onTheme = () => {
       const t = terminalInstance.current;
       if (!t) return;
-      t.options.theme = buildXtermThemeFromDom();
+      // paneXtermTheme, not the raw helper: its transparent background would
+      // leave this rectangle painted in the previous theme's canvas colour,
+      // since nothing else repaints behind an opaque terminal.
+      t.options.theme = paneXtermTheme();
       try {
+        // The GPU renderer caches rasterised glyphs per colour — without
+        // dropping the atlas the old theme's text keeps being blitted.
+        webglRef.current?.clearTextureAtlas();
         t.refresh(0, t.rows - 1);
       } catch {
         /* ignore */
@@ -425,8 +515,11 @@ export default function TerminalPane({
               rename). */}
           {headerExtra}
         </div>
-        <div className="flex items-center gap-1">
-          {onToggleMaximize && paneWidth >= 240 && (
+        {/* Four icons fit even in a narrow pane once the name truncates. They
+            used to disappear below 240px, which didn't make the header smaller
+            — it made "clear terminal" stop existing. */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {onToggleMaximize && (
             <button
               onClick={onToggleMaximize}
               className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
@@ -435,24 +528,20 @@ export default function TerminalPane({
               {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
             </button>
           )}
-          {paneWidth >= 240 && (
-            <button
-              onClick={handleCopy}
-              className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
-              title="Copy selection"
-            >
-              <Copy size={12} />
-            </button>
-          )}
-          {paneWidth >= 240 && (
-            <button
-              onClick={handleClear}
-              className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
-              title="Clear terminal"
-            >
-              <Eraser size={12} />
-            </button>
-          )}
+          <button
+            onClick={handleCopy}
+            className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
+            title="Copy selection"
+          >
+            <Copy size={12} />
+          </button>
+          <button
+            onClick={handleClear}
+            className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
+            title="Clear terminal"
+          >
+            <Eraser size={12} />
+          </button>
           {onClose && (
             <button
               onClick={(e) => {
@@ -468,12 +557,37 @@ export default function TerminalPane({
         </div>
       </div>
 
-      {/* terminal content */}
+      {/* terminal content — bg matches the xterm theme so the whole-cell fit
+          remainder on the right/bottom blends in instead of showing a strip
+          (and so the opaque GPU-rendered canvas has something to sit on). */}
       <div
         className="flex-1 overflow-hidden relative min-h-0 p-2"
-        style={{ contain: "layout paint" }}
+        style={{ contain: "layout paint", background: "rgb(var(--swarm-canvas-hi))" }}
       >
         <div ref={terminalRef} className="absolute inset-2 overflow-hidden" />
+
+        {/* Until the shell prints something this is a black rectangle that
+            looks broken; a failed spawn was one red line in it. */}
+        {status !== "running" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none glass-inset backdrop-blur-[2px] animate-fade-in px-4 text-center">
+            {status === "error" ? (
+              <>
+                <AlertTriangle size={18} className="text-swarm-err" />
+                <span className="text-xs text-swarm-textDim">Shell failed to start</span>
+                {errorText && (
+                  <span className="text-mini text-swarm-textMuted max-w-[260px] break-words">
+                    {errorText.slice(0, 160)}
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <Loader2 size={18} className="text-swarm-gold animate-spin" />
+                <span className="text-xs text-swarm-textMuted">Starting shell…</span>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

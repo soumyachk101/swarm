@@ -79,10 +79,13 @@ const ANSI = {
 /** xterm ITheme: app chrome from the live tokens, ANSI slots fixed. */
 export function buildXtermThemeFromDom(): Record<string, string> {
   return {
-    // Transparent: the pane behind supplies the glass. xterm painting its own
-    // opaque fill here is what made every terminal a solid rectangle sitting on
-    // top of the glass instead of part of it.
-    background: "#00000000",
+    // Opaque, matching the pane's own content background. This used to be
+    // transparent so the glass would show through — but a pane already paints
+    // an opaque `--swarm-canvas-hi` fill behind its terminal, so nothing ever
+    // showed through; all the transparency bought was xterm's slow alpha path
+    // and a hard block on the WebGL renderer (which cannot honour it). Opaque
+    // here is what lets the panes run on the GPU with crisp glyphs.
+    background: swarmHex("--swarm-canvas-hi"),
     foreground: swarmHex("--swarm-text"),
     cursor: swarmHex("--swarm-gold"),
     cursorAccent: swarmHex("--swarm-canvas"),

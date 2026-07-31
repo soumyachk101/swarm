@@ -1,7 +1,7 @@
 /**
  * Swarm's own marks. Every concept the product invented gets a drawn mark,
- * never a stock glyph: a Agent is not a robot, a agent is not a plain
- * hexagon, Pheromone is not a database cylinder, Tasks is not a kanban board.
+ * never a stock glyph: an agent is not a robot, a workspace is not a plain
+ * folder, Pheromone is not a database cylinder, Tasks is not a kanban board.
  *
  * All are lucide-compatible: 24x24 viewBox, `currentColor`, sized via `size`.
  * Hexagon vertices are computed geometry, not eyeballed.
@@ -23,7 +23,7 @@ const base = (size: number, className?: string) => ({
   style: { flexShrink: 0 },
 });
 
-/** A worker swarm: striped abdomen, two wings, antennae. */
+/** A worker of the swarm: striped abdomen, two wings, antennae. */
 export function AgentMark({ size = 16, className, filled }: MarkProps) {
   return (
     <svg
@@ -55,7 +55,7 @@ export function AgentMark({ size = 16, className, filled }: MarkProps) {
   );
 }
 
-/** A agent: one outer cell holding three brood cells. */
+/** A workspace: one outer cell holding the three cells it nests. */
 export function WorkspaceMark({ size = 16, className, filled }: MarkProps) {
   return (
     <svg
@@ -75,7 +75,7 @@ export function WorkspaceMark({ size = 16, className, filled }: MarkProps) {
   );
 }
 
-/** Pheromone: a honey droplet holding a stored spark. Memory, not a database. */
+/** Pheromone: a droplet holding a stored spark. Memory, not a database. */
 export function PheromoneMark({ size = 16, className, filled }: MarkProps) {
   return (
     <svg
@@ -97,7 +97,7 @@ export function PheromoneMark({ size = 16, className, filled }: MarkProps) {
   );
 }
 
-/** Tasks: four comb cells, the board's own mark. */
+/** Tasks: four packed cells, the board's own mark. */
 export function TasksMark({ size = 16, className, filled }: MarkProps) {
   return (
     <svg

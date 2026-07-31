@@ -1,4 +1,4 @@
-// Flow: the infinite canvas view of a agent. Same panes as the
+// Flow: the infinite canvas view of a swarm. Same panes as the
 // Board grid, laid out in space instead of in slots.
 export { default as FlowCanvas, type CanvasItem } from "./FlowCanvas.js";
 export { useCanvasStore, DEFAULT_NODE_SIZE, type NodeBox } from "./canvasStore.js";

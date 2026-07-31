@@ -19,9 +19,9 @@ interface Props {
 type Tab = "skills" | "mcp";
 
 /**
- * The agent toolbox: one place to pick the skills and MCP servers that
- * every agent in this agent gets. Nothing here is per-agent — a toolbox is
- * written into the agent's folder and every tree under it, so Agents
+ * The workspace toolbox: one place to pick the skills and MCP servers that
+ * every agent in this workspace gets. Nothing here is per-agent — a toolbox is
+ * written into the workspace's folder and every tree under it, so Agents
  * and the Lead all read the same set.
  */
 export default function ToolboxPane({ paneId, onClose, onToggleMaximize, isMaximized, headerExtra }: Props) {
@@ -45,11 +45,24 @@ export default function ToolboxPane({ paneId, onClose, onToggleMaximize, isMaxim
     setScanning(true);
     try {
       setAvailable(await discoverInstalledSkills());
+      setError(null);
+    } catch (e: any) {
+      // Without this the scan failed as an unhandled rejection and the list just
+      // stayed empty — indistinguishable from "you have no skills installed".
+      setError(`Couldn't scan skills: ${String(e?.message ?? e)}`);
     } finally {
       setScanning(false);
     }
   };
   useEffect(() => { scan(); }, []);
+
+  // A success line that never leaves reads as the current state of the pane
+  // rather than as the result of the click that produced it.
+  useEffect(() => {
+    if (!status) return;
+    const t = setTimeout(() => setStatus(null), 4000);
+    return () => clearTimeout(t);
+  }, [status]);
 
   const chosen = useMemo(() => new Set(toolbox.skills.map((s) => s.name)), [toolbox.skills]);
 
@@ -76,14 +89,20 @@ export default function ToolboxPane({ paneId, onClose, onToggleMaximize, isMaxim
   };
 
   const addSkillFolder = async () => {
-    const picked = await openDialog({ directory: true, multiple: false, title: "Choose a skill folder" });
-    if (typeof picked !== "string") return;
-    const skill = await skillFromFolder(picked);
-    if (!skill) {
-      setError("That folder has no SKILL.md, so it is not a skill.");
-      return;
+    try {
+      const picked = await openDialog({ directory: true, multiple: false, title: "Choose a skill folder" });
+      if (typeof picked !== "string") return;
+      const skill = await skillFromFolder(picked);
+      if (!skill) {
+        setError("That folder has no SKILL.md, so it is not a skill.");
+        return;
+      }
+      run(`Added ${skill.name}`, () => setSkills(swarm!.id, [...toolbox.skills, skill]));
+    } catch (e: any) {
+      // An unreadable folder threw past the button handler as an unhandled
+      // rejection: the picker closed and the pane looked like it did nothing.
+      setError(String(e?.message ?? e));
     }
-    run(`Added ${skill.name}`, () => setSkills(swarm!.id, [...toolbox.skills, skill]));
   };
 
   const removeServer = (id: string) =>
@@ -100,8 +119,10 @@ export default function ToolboxPane({ paneId, onClose, onToggleMaximize, isMaxim
     <div className="flex h-full flex-col overflow-hidden">
       <div {...paneHeaderProps}>
         <span className="size-1.5 shrink-0 rounded-full" style={{ background: theme.accent }} />
-        <span className="truncate text-mini font-medium text-swarm-text">Toolbox</span>
-        {swarm && <span className="truncate text-micro text-swarm-textMuted">{swarm.name}</span>}
+        <span className="shrink-0 text-mini font-medium text-swarm-text">Toolbox</span>
+        {/* The workspace name is the part that must give: a fixed "Toolbox" label
+            that truncates before an unbounded name is backwards. */}
+        {swarm && <span className="min-w-0 truncate text-micro text-swarm-textMuted" title={swarm.name}>{swarm.name}</span>}
         {headerExtra}
         <div className="ml-auto flex items-center gap-0.5">
           <button onClick={scan} title="Rescan installed skills"
@@ -124,7 +145,7 @@ export default function ToolboxPane({ paneId, onClose, onToggleMaximize, isMaxim
       </div>
 
       {!swarm ? (
-        <p className="p-4 text-mini text-swarm-textMuted">Open a agent to give its agents a toolbox.</p>
+        <p className="p-4 text-mini text-swarm-textMuted">Open a workspace to give its agents a toolbox.</p>
       ) : (
         <>
           <div className="flex shrink-0 items-center gap-1 border-b border-swarm-border/40 px-2 py-1.5">
@@ -136,8 +157,8 @@ export default function ToolboxPane({ paneId, onClose, onToggleMaximize, isMaxim
                 {t === "skills" ? `Skills (${toolbox.skills.length})` : `MCP (${toolbox.mcpServers.length})`}
               </button>
             ))}
-            <span className="ml-auto text-micro text-swarm-textMuted">
-              applies to every swarm in this swarm
+            <span className="ml-auto truncate pl-2 text-micro text-swarm-textMuted">
+              applies to every agent in this workspace
             </span>
           </div>
 

@@ -5,29 +5,37 @@ export interface RoleBadgeProps {
   branchName?: string;
 }
 
+// Roles are told apart by the theme's own semantic ramp, not by stock Tailwind
+// blue/purple/red. Those are fixed sRGB values: on the light themes they sat at
+// ~2:1 against the surface and the badge text vanished, and they never followed
+// an accent swap. Every theme defines gold/ok/honey/amber, so this reads on all
+// eight and still gives each role its own hue.
 const ROLE_CONFIG: Record<string, { label: string; color: string; dot: string }> = {
   builder: { label: 'Builder', color: 'bg-swarm-gold/15 text-swarm-goldHi border-swarm-gold/25', dot: 'bg-swarm-gold shadow-glow' },
-  reviewer: { label: 'Reviewer', color: 'bg-blue-500/10 text-blue-300 border-blue-400/20', dot: 'bg-blue-400' },
-  scout: { label: 'Scout', color: 'bg-purple-500/10 text-purple-300 border-purple-400/20', dot: 'bg-purple-400' },
-  coordinator: { label: 'Coordinator', color: 'bg-red-500/10 text-red-300 border-red-400/20', dot: 'bg-red-400' },
+  reviewer: { label: 'Reviewer', color: 'bg-swarm-ok/12 text-swarm-ok border-swarm-ok/25', dot: 'bg-swarm-ok' },
+  scout: { label: 'Scout', color: 'bg-swarm-honey/12 text-swarm-honey border-swarm-honey/25', dot: 'bg-swarm-honey' },
+  coordinator: { label: 'Coordinator', color: 'bg-swarm-amber/12 text-swarm-amber border-swarm-amber/25', dot: 'bg-swarm-amber' },
 };
 
-const CACHE: Record<string, { label: string; color: string; dot: string }> = { ...ROLE_CONFIG };
-
-function configForRole(role: string) {
-  const lower = role.toLowerCase();
-  return CACHE[lower] || { label: role, color: 'bg-swarm-textMuted/10 text-swarm-textDim border-swarm-textMuted/20', dot: 'bg-swarm-textMuted' };
-}
+const FALLBACK = {
+  color: 'bg-swarm-textMuted/10 text-swarm-textDim border-swarm-textMuted/20',
+  dot: 'bg-swarm-textMuted',
+};
 
 export default function RoleBadge({ role, branchName }: RoleBadgeProps) {
-  const cfg = configForRole(role);
+  const cfg = ROLE_CONFIG[role.toLowerCase()] ?? { label: role, ...FALLBACK };
 
   return (
-    <span className={`inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded-md text-micro font-medium border ${cfg.color}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-      <span>{cfg.label}</span>
+    <span
+      className={`inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md border px-1.5 py-0.5 text-micro font-medium ${cfg.color}`}
+      title={branchName ? `${cfg.label} · ${branchName}` : cfg.label}
+    >
+      <span className={`size-1.5 shrink-0 rounded-full ${cfg.dot}`} />
+      {/* An unknown role is echoed verbatim, and agent roles can be arbitrary
+          strings — without a cap one long label stretches the whole header row. */}
+      <span className="truncate">{cfg.label}</span>
       {branchName && (
-        <span className="font-mono text-micro opacity-60 ml-0.5 truncate max-w-[80px]" title={branchName}>
+        <span className="ml-0.5 truncate font-mono text-micro opacity-60">
           {branchName}
         </span>
       )}

@@ -5,7 +5,10 @@
  * borders, bodies) always uses shared `--swarm-*` surface tokens so every
  * theme keeps planes visually uniform.
  */
-export type ComponentKind = "agent" | "shell" | "openvsx" | "coworker" | "browser" | "emulator" | "toolbox";
+// Every member MUST have an entry in COMPONENT_THEMES below. A kind listed here
+// with no theme falls through to the agent gold and becomes indistinguishable
+// from an agent pane, which defeats the whole point of the identity dot.
+export type ComponentKind = "agent" | "shell" | "openvsx" | "browser" | "emulator" | "toolbox";
 
 export interface ComponentTheme {
   /** Solid accent (class dot, active icon). */
@@ -21,11 +24,11 @@ export interface ComponentTheme {
 // theme. If these followed --swarm-* they would shift per theme and stop being a
 // code. All eight themes are dark, so one set of values reads on all of them.
 export const CLASS_COLORS = {
-  /** Anything that can be a Agent — a CLI agent, or an agent extension. */
+  /** Anything that can act as an agent — a CLI agent, or an agent extension. */
   worker: "#f2c94c",
   /** A plain shell terminal. */
   terminal: "#c6ced6",
-  /** An editor extension that cannot be a Agent (a tool). */
+  /** An editor extension that cannot act as an agent (a tool). */
   extension: "#5fbf7d",
   browser: "#8ab4d8",
   emulator: "#c58ad8",
@@ -53,14 +56,20 @@ export const COMPONENT_THEMES: Record<string, ComponentTheme> = {
   toolbox: themeFor(CLASS_COLORS.toolbox),
 };
 
-/** Theme for a Agent kind; `undefined` (a CLI agent) → the agent theme. */
+/** Theme for a pane kind; `undefined` (a CLI agent) → the agent theme. */
 export function themeForKind(kind?: string): ComponentTheme {
   return COMPONENT_THEMES[kind ?? "agent"] ?? COMPONENT_THEMES.agent;
 }
 
-/** Shared pane title-bar classes — identical across agent / shell / openvsx / … */
+/**
+ * Shared pane title-bar classes — identical across agent / shell / openvsx / …
+ *
+ * `select-none` is load-bearing: this bar is the drag handle on both the board
+ * and the Flow canvas, and without it a drag smears a text selection across the
+ * title (and anything else the pointer crosses) that then lingers after drop.
+ */
 export const PANE_HEADER_CLASS =
-  "h-8 shrink-0 border-b border-swarm-border/45 glass-toolbar flex items-center gap-1.5 px-2 cursor-grab active:cursor-grabbing";
+  "h-8 shrink-0 select-none border-b border-swarm-border/45 glass-toolbar flex items-center gap-1.5 px-2 cursor-grab active:cursor-grabbing";
 
 /**
  * Spread onto a pane's title bar. Carries the shared classes AND the marker the

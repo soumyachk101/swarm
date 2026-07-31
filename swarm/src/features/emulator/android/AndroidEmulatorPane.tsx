@@ -5,7 +5,6 @@ import {
   Smartphone, Plus, Play, Square, Trash2, RefreshCw, Lock, AlertTriangle, Loader2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { PANE_HEADER_CLASS } from "@swarm/board";
 import { useEmulatorStore } from "../emulatorStore";
 import AvdBuildDialog from "./AvdBuildDialog";
 
@@ -34,13 +33,23 @@ export default function AndroidEmulatorPane() {
   const booted = new Set(devices.filter((d) => d.state === "device").map((d) => d.serial));
   const anyDeviceUp = devices.length > 0;
 
+  // adb does not list the device until the AVD is well into its boot, which is
+  // 20-40s after launch. Clearing the spinner on a 4s timer put Start back
+  // under the cursor mid-boot, and a second click launched a second emulator.
+  // The 3s device poll is the real signal that it came up; the ceiling only
+  // exists so a boot that never completes doesn't spin forever.
+  useEffect(() => {
+    if (!busyAvd) return;
+    if (devices.length > 0) { setBusyAvd(null); return; }
+    const t = setTimeout(() => setBusyAvd(null), 120_000);
+    return () => clearTimeout(t);
+  }, [busyAvd, devices.length]);
+
   const start = async (name: string) => {
     setBusyAvd(name);
     setActionError(null);
     try {
       await invoke("start_emulator", { name });
-      // Boot takes ~20-40s; the poll above will surface it.
-      setTimeout(() => setBusyAvd(null), 4000);
     } catch (e: any) {
       setActionError(String(e?.message ?? e));
       setBusyAvd(null);
@@ -57,6 +66,10 @@ export default function AndroidEmulatorPane() {
   };
 
   const remove = async (name: string) => {
+    // Deleting an AVD throws away its userdata image — installed apps, logins,
+    // whatever state the device held — and nothing restores it. One click next
+    // to Start is far too cheap for that.
+    if (!window.confirm(`Delete "${name}"? Its apps and data are erased for good.`)) return;
     try {
       await invoke("delete_avd", { name });
       await refresh();
@@ -68,7 +81,9 @@ export default function AndroidEmulatorPane() {
   /* ── SDK missing: say exactly what's wrong ─────────────────── */
   if (!loading && sdk && !sdk.sdkPath) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+      // glass-body like every other state of this pane; without it the empty
+      // state punched a hole through to the canvas behind the pane.
+      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center glass-body">
         <Smartphone className="size-5 text-swarm-textMuted/50" />
         <p className="text-mini font-medium text-swarm-err">Android SDK not found</p>
         <p className="max-w-[400px] text-micro leading-[1.5] text-swarm-textMuted">
@@ -85,10 +100,14 @@ export default function AndroidEmulatorPane() {
 
   return (
     <div className="relative flex h-full flex-col glass-body">
-      {/* Toolbar — same surface as other panes (no class-tinted wash). */}
-      <div data-pane-drag data-pane-header="true" className={`${PANE_HEADER_CLASS} gap-1.5`}>
+      {/* A toolbar, not a second title bar. EmulatorPane already renders the
+          pane header directly above this one; repeating `data-pane-drag` here
+          gave the pane two grab handles stacked on top of each other, and
+          repeating the platform name said "Android" twice in 24 vertical px.
+          Spelled out rather than PANE_HEADER_CLASS + overrides, because those
+          overrides lose to it on Tailwind's own class ordering. */}
+      <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-swarm-border/45 glass-toolbar px-2">
         <Smartphone className="size-3 shrink-0 text-swarm-textMuted" />
-        <span className="text-mini font-medium text-swarm-text">Android</span>
         <span className="text-micro text-swarm-textMuted">
           {sdk ? `${sdk.avds.length} built · ${devices.length} running` : "…"}
         </span>
@@ -118,7 +137,18 @@ export default function AndroidEmulatorPane() {
           <div className="flex h-full items-center justify-center gap-2 text-mini text-swarm-textMuted">
             <Loader2 className="size-3 animate-spin" /> Looking for the Android SDK…
           </div>
-        ) : sdk && sdk.avds.length === 0 ? (
+        ) : !sdk ? (
+          // The scan finished without producing a status — every branch below
+          // reads `sdk`, and falling through rendered an AVD list with no AVDs
+          // in it and no explanation.
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+            <AlertTriangle className="size-4 text-swarm-textMuted/50" />
+            <p className="text-mini text-swarm-textMuted">Couldn't read the Android SDK.</p>
+            <button onClick={refresh} className="rounded-md border border-swarm-gold/30 bg-swarm-gold/10 px-2.5 py-1 text-micro text-swarm-goldHi hover:bg-swarm-gold/20">
+              Try again
+            </button>
+          </div>
+        ) : sdk.avds.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
             <Smartphone className="size-5 text-swarm-textMuted/50" />
             <p className="text-mini font-medium text-swarm-textDim">No emulators yet</p>
@@ -151,11 +181,16 @@ export default function AndroidEmulatorPane() {
                       <span className="truncate text-mini font-medium text-swarm-text">{name}</span>
                       <Lock className="size-2.5 shrink-0 text-swarm-textMuted/60" />
                     </div>
-                    <span className="text-micro text-swarm-textMuted">
+                    <span className="truncate text-micro text-swarm-textMuted">
                       {running && booted.has(serial ?? "")
                         ? `running · ${serial}`
                         : running
                         ? `booting · ${serial}`
+                        // Named separately from "booting": before adb sees the
+                        // device there is no serial and nothing else on screen
+                        // moves, so the pane looked frozen for half a minute.
+                        : busyAvd === name
+                        ? "starting… this takes up to a minute"
                         : "stopped"}
                     </span>
                   </div>

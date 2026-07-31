@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import PlaneHost from "@/features/panes/PlaneHost";
 import { usePlaneStore } from "@/features/panes/planeStore";
 import { TasksPanel } from "@swarm/tasks";
@@ -10,12 +10,11 @@ import SwarmLogo from "@/shared/SwarmLogo";
 import SettingsPage from "@/features/settings/SettingsPage";
 import { ExtensionsMarketplace } from "@swarm/extension";
 import { Blocks, Gauge } from "lucide-react";
-import { useAgentsStore, CliUsagePanel, type Agent } from "@swarm/agents/ui";
+import { useAgentsStore, CliUsagePanel } from "@swarm/agents/ui";
 import { getTauriAPIs, loadTauriAPIs } from "@/shared/tauri";
 import { WorkspacesSidebar as ADEWorktreeSidebar } from "@swarm/workspace/ui";
 import ADERightDock from "@/features/dock/RightDock";
-import { useWorkspaceStore, samePath, folderName } from "@swarm/workspace";
-import { useProjectStore } from "@swarm/workspace";
+import { useWorkspaceStore } from "@swarm/workspace";
 import { useUiStore } from "@/shared/uiStore";
 import { useSettingsStore } from "@/features/settings/settingsStore";
 import { themeAccentHex } from "@/shared/themes";
@@ -45,7 +44,6 @@ import OverflowMenu from "@/shared/OverflowMenu";
 const WINDOW_CONTROLS_WIDTH = 142;
 
 export default function HomePage() {
-  const [initialized, setInitialized] = useState(false);
   const [isMaximized, setIsMaximized] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
@@ -54,12 +52,10 @@ export default function HomePage() {
     branch: string;
     changed: number;
   } | null>(null);
-  const windowRef = useRef<any>(null);
 
   // Sidebar state: pinned = takes flex space, unpinned = overlay.
   // Open/closed lives in uiStore so Lead's tools can toggle it too.
   const [leftPinned, setLeftPinned] = useState(true);
-  const [rightPinned, setRightPinned] = useState(true);
   const leftOpen = useUiStore((s) => s.leftOpen);
   const rightOpen = useUiStore((s) => s.rightOpen);
   const setLeftOpen = useUiStore((s) => s.setLeftOpen);
@@ -67,12 +63,13 @@ export default function HomePage() {
   const toggleLeft = useUiStore((s) => s.toggleLeft);
   const toggleRight = useUiStore((s) => s.toggleRight);
 
-  const agents = useAgentsStore((state) => state.agents);
+  // Only the statuses are read here. Subscribing to the whole agents array
+  // re-rendered the entire shell (and every dock/pane inside it) on each
+  // agent-store tick, which is what made resizing and typing feel sticky.
   const agentStatuses = useAgentsStore((state) => state.agentStatuses);
   const refitTerminals = useAgentsStore((state) => state.refitTerminals);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
-  const updateWorkspace = useWorkspaceStore((s) => s.updateWorkspace);
   const boardOpen = useWorkspaceStore((s) => s.boardOpen);
   const setBoardOpen = useWorkspaceStore((s) => s.setBoardOpen);
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
@@ -97,20 +94,34 @@ export default function HomePage() {
     return () => window.removeEventListener("focus", refitTerminals);
   }, [refitTerminals]);
 
+  // The window can be maximized without going through our button — OS snap,
+  // a double-click on the drag region, a keyboard shortcut. Mirroring the real
+  // state keeps the restore icon honest instead of frozen on whatever the last
+  // in-app click did.
   useEffect(() => {
-    const initializeWindow = async () => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    (async () => {
       try {
         const apis = await loadTauriAPIs();
-        if (apis?.getCurrentWindow) {
-          const window = apis.getCurrentWindow();
-          windowRef.current = window;
-        }
+        if (!apis?.getCurrentWindow) return;
+        const win = apis.getCurrentWindow();
+        const sync = async () => {
+          const max = await win.isMaximized();
+          if (!cancelled) setIsMaximized(max);
+        };
+        await sync();
+        unlisten = await win.onResized(sync);
+        // The effect may have been torn down while onResized was in flight.
+        if (cancelled) unlisten();
       } catch (e) {
         console.error("Failed to initialize window:", e);
       }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
     };
-    initializeWindow();
-    setInitialized(true);
   }, []);
 
   useEffect(() => {
@@ -118,9 +129,15 @@ export default function HomePage() {
       if (e.ctrlKey && e.key === "b") {
         // Let a focused terminal/input keep Ctrl+B (tmux prefix, readline, etc.)
         // instead of the global dock toggle stealing it — same guard used for
-        // Ctrl+C interception in AgentPane.
+        // Ctrl+C interception in AgentPane. contentEditable counts too: the
+        // GlassChat embed composes in one, and losing every ^B there reads as
+        // the panel eating keystrokes.
         const active = document.activeElement;
-        if (active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement) {
+        if (
+          active instanceof HTMLTextAreaElement ||
+          active instanceof HTMLInputElement ||
+          (active instanceof HTMLElement && active.isContentEditable)
+        ) {
           return;
         }
         e.preventDefault();
@@ -150,14 +167,11 @@ export default function HomePage() {
       const apis = getTauriAPIs();
       if (apis?.getCurrentWindow) {
         const window = apis.getCurrentWindow();
+        // Toggle against the window's own state, not ours: acting on a stale
+        // `isMaximized` sent the window the wrong way after an OS-side snap.
         if (window) {
-          if (isMaximized) {
-            await window.unmaximize();
-            setIsMaximized(false);
-          } else {
-            await window.maximize();
-            setIsMaximized(true);
-          }
+          await window.toggleMaximize();
+          setIsMaximized(await window.isMaximized());
         }
       }
     } catch (e) {
@@ -175,10 +189,6 @@ export default function HomePage() {
     } catch (e) {
       console.error("Failed to close window:", e);
     }
-  };
-
-  const handleTitleBarDoubleClick = async () => {
-    await handleMaximize();
   };
 
 
@@ -231,7 +241,7 @@ export default function HomePage() {
           {
             id: "open",
             label: "Open project…",
-            hint: "Start or switch a agent",
+            hint: "Start or switch a workspace",
             icon: FolderOpen,
             onSelect: handleOpenFolder,
           },
@@ -311,7 +321,6 @@ export default function HomePage() {
   // xterms draining one pty leaves the widget blank.
   const planeFullscreen = usePlaneStore((s) => s.fullscreen);
   const dockVisible = rightOpen && !planeFullscreen;
-  const rightTakesSpace = dockVisible;
 
   return (
     <div className="h-screen w-screen flex flex-col text-swarm-text font-sans select-none">
@@ -327,10 +336,19 @@ export default function HomePage() {
         Only the app/window controls float, fixed to the window's top-right
         corner, because those belong to the window rather than to any column.
       */}
+      {/*
+        "deep" so the padding and the gaps between the controls drag the window
+        too — a bare drag region only reacts to direct hits on itself, which
+        left this whole corner dead except for the container's own few pixels.
+        Buttons still click: Tauri stops the walk at any clickable element.
+
+        No onDoubleClick either: Tauri's drag region already toggles maximize on
+        double-click, so handling it again toggled it straight back — and the
+        handler fired for double-clicks on the buttons as well.
+      */}
       <div
         className="fixed right-0 top-0 z-[60] flex h-11 items-center gap-1 px-2"
-        data-tauri-drag-region
-        onDoubleClick={handleTitleBarDoubleClick}
+        data-tauri-drag-region="deep"
       >
         {/* Window controls only. Everything that acts on the app moved into
             the sidebar's overflow menu, which is why this corner is now four
@@ -406,9 +424,12 @@ export default function HomePage() {
             <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
               <SwarmLogo size={44} />
               <div className="space-y-1">
-                <p className="text-sm font-semibold text-swarm-text">No agent open</p>
+                {/* "a agent" was a bad find-and-replace from the rebrand: the
+                    thing a folder opens is a workspace, which is what the
+                    sidebar calls it too. */}
+                <p className="text-sm font-semibold text-swarm-text">No workspace open</p>
                 <p className="max-w-[42ch] text-xs leading-relaxed text-swarm-textMuted">
-                  Open a project folder to start a agent. It keeps its own agents,
+                  Open a project folder to start a workspace. It keeps its own agents,
                   branches, board and memory, and remembers them next time.
                 </p>
               </div>
@@ -438,8 +459,11 @@ export default function HomePage() {
                 )
               }
               // Only the centre column runs under the floating controls; when
-              // the dock is open it covers that corner itself.
-              reserveRight={rightOpen ? 0 : WINDOW_CONTROLS_WIDTH}
+              // the dock is open it covers that corner itself. Keyed off
+              // dockVisible, not rightOpen: a fullscreen plane hides the dock
+              // while rightOpen is still true, and the strip's right end was
+              // sliding under the window controls there.
+              reserveRight={dockVisible ? 0 : WINDOW_CONTROLS_WIDTH}
             />
           )}
           {/* Tasks is docked to the center, outside the plane, so switching
@@ -458,23 +482,17 @@ export default function HomePage() {
           />
         </div>
 
-        {/* Right dock — docked (takes space) when pinned, floating overlay when unpinned */}
+        {/* Right dock — always docked, never floating (see the note above:
+            floating it buried the pipeline's right edge). The pin control it
+            used to render did nothing at all, so it is gone. */}
         {dockVisible && (
           <div
-            className={`${rightTakesSpace ? "relative flex-shrink-0" : "absolute right-0 top-0 bottom-0 z-40 shadow-2xl shadow-black/40"}`}
+            className="relative flex-shrink-0"
             // The dock reaches the window's top-right corner, where the
             // window controls float. Start its content below them.
             style={{ paddingTop: 44 }}
           >
-            <ADERightDock
-              projectPath={projectPath}
-              activeWorkspaceId={activeWorkspaceId}
-              pinned={rightPinned}
-              onTogglePin={() => setRightPinned((p) => !p)}
-              onClose={() => setRightOpen(false)}
-              onOpenSettings={() => setShowSettings(true)}
-              onOpenProject={handleOpenFolder}
-            />
+            <ADERightDock projectPath={projectPath} onClose={() => setRightOpen(false)} />
           </div>
         )}
       </div>

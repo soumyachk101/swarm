@@ -30,7 +30,7 @@ import { WorktreeSelect as WorktreeSelect, ToolboxPane } from "@swarm/workspace/
 import { useExtensionStore, isAgentExtension } from "@swarm/extension";
 import { extensionAgentProps } from "@/host/extensionAgent";
 import {
-  usePlaneStore, PLANES, planeFor, paneInPlane, type PlaneKind, type PlaneDef, type BoardView,
+  usePlaneStore, planeFor, paneInPlane, type PlaneKind, type PlaneDef, type BoardView,
 } from "./planeStore";
 import { GRID_PRESETS, presetFor, PresetThumb } from "./gridPresets";
 
@@ -94,7 +94,6 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
   const updateAgent = useAgentsStore((s) => s.updateAgent);
   const maximizedPane = useAgentsStore((s) => s.maximizedPane);
   const setMaximizedPane = useAgentsStore((s) => s.setMaximizedPane);
-  const reorderAgents = useAgentsStore((s) => s.reorderAgents);
   const swapAgents = useAgentsStore((s) => s.swapAgents);
   const refitTerminals = useAgentsStore((s) => s.refitTerminals);
   const gridLayout = useAgentsStore((s) => s.gridLayout);
@@ -107,7 +106,6 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
   const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
 
   const active = usePlaneStore((s) => s.active);
-  const setActive = usePlaneStore((s) => s.setActive);
   const view = usePlaneStore((s) => s.view);
   const setView = usePlaneStore((s) => s.setView);
   const fullscreen = usePlaneStore((s) => s.fullscreen);
@@ -121,19 +119,25 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
   const [showAdd, setShowAdd] = useState(false);
   const [shells, setShells] = useState<{ id: string; label: string; command: string }[]>([]);
   const [focusedPane, setFocusedPane] = useState<string | null>(null);
-  // Spotlight in Focus layouts — chosen by clicking a pane body, NOT by focus,
-  // so clicking a pane's own buttons (e.g. delete) never reshuffles the grid.
-  const [spotlightSel, setSpotlightSel] = useState<string | null>(null);
 
   // ── pointer-based pane drag (HTML5 DnD can't cross terminal/webview panes) ──
   const rootRef = useRef<HTMLDivElement>(null);
+  const ghostRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<{ id: string; name: string } | null>(null);
-  const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const [over, setOver] = useState<
     { kind: "snap"; id: GridLayout } | { kind: "pane"; id: string } | null
   >(null);
-  const pending = useRef<{ id: string; name: string; x: number; y: number } | null>(null);
+  // Live cursor position. A ref, not state: the ghost is moved by writing
+  // transform straight to the DOM (see below), and only the very first frame
+  // of the drag reads this during render.
+  const pointerRef = useRef({ x: 0, y: 0 });
   const dragId = useRef<string | null>(null);
+  // Teardown for whatever drag is in flight. Every exit route funnels through
+  // it — mouseup, Escape, and the host unmounting mid-drag. Without that last
+  // one a window-level mousemove outlives the component and keeps hit-testing
+  // a detached tree on every mouse move, forever.
+  const endDrag = useRef<(() => void) | null>(null);
+  useEffect(() => () => endDrag.current?.(), []);
 
   const hitTest = (x: number, y: number) => {
     const root = rootRef.current;
@@ -153,35 +157,6 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
     return null;
   };
 
-  const onDragMove = (e: MouseEvent) => {
-    const p = pending.current;
-    setPointer({ x: e.clientX, y: e.clientY });
-    if (p && !dragId.current) {
-      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < 5) return;
-      dragId.current = p.id;
-      setDrag({ id: p.id, name: p.name });
-    }
-    if (dragId.current) setOver(hitTest(e.clientX, e.clientY));
-  };
-  const onDragUp = (e: MouseEvent) => {
-    window.removeEventListener("mousemove", onDragMove);
-    window.removeEventListener("mouseup", onDragUp);
-    if (dragId.current) {
-      const o = hitTest(e.clientX, e.clientY);
-      if (o?.kind === "snap") setGridLayout(o.id);
-      else if (o?.kind === "pane") {
-        // Drop onto another pane = SWAP their positions (works in every grid,
-        // Focus included: swapping into slot 0 makes that pane the spotlight).
-        const from = agents.findIndex((b) => b.id === dragId.current);
-        const to = agents.findIndex((b) => b.id === o.id);
-        if (from >= 0 && to >= 0) swapAgents(from, to);
-      }
-    }
-    pending.current = null;
-    dragId.current = null;
-    setDrag(null);
-    setOver(null);
-  };
   const onPaneMouseDown = (e: React.MouseEvent, swarm: Agent) => {
     const t = e.target as HTMLElement;
     // Buttons/inputs handle themselves — never promote or drag from them, so a
@@ -191,9 +166,66 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
     // a pane is dragged and dropped onto another (positions swap). Otherwise
     // clicking anywhere in a pane would reshuffle the Focus grid.
     if (maximizedPane || !t.closest("[data-pane-drag]")) return;
-    pending.current = { id: swarm.id, name: swarm.customName || swarm.cliName, x: e.clientX, y: e.clientY };
-    window.addEventListener("mousemove", onDragMove);
-    window.addEventListener("mouseup", onDragUp);
+    // The whole drag lives in this closure so `finish` can unregister exactly
+    // the listeners this gesture added — component-level handlers are rebuilt
+    // every render, and a re-render between mousedown and mouseup would leave
+    // the old pair attached to window with nothing able to remove them.
+    const start = { id: swarm.id, name: swarm.customName || swarm.cliName, x: e.clientX, y: e.clientY };
+    pointerRef.current = { x: e.clientX, y: e.clientY };
+
+    const move = (ev: MouseEvent) => {
+      pointerRef.current = { x: ev.clientX, y: ev.clientY };
+      // The ghost follows the cursor via a direct style write. Routing 60
+      // samples a second through setState would re-render every live terminal
+      // on the board for the length of the drag.
+      const g = ghostRef.current;
+      if (g) g.style.transform = `translate3d(${ev.clientX + 14}px, ${ev.clientY + 14}px, 0)`;
+      if (!dragId.current) {
+        if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 5) return;
+        dragId.current = start.id;
+        setDrag({ id: start.id, name: start.name });
+      }
+      const hit = hitTest(ev.clientX, ev.clientY);
+      // Same target as the previous sample ⇒ hand React the identical object so
+      // it bails out, instead of reconciling the whole grid on every move.
+      setOver((cur) => (cur?.kind === hit?.kind && cur?.id === hit?.id ? cur : hit));
+    };
+    const finish = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      window.removeEventListener("keydown", key);
+      endDrag.current = null;
+      dragId.current = null;
+      setDrag(null);
+      setOver(null);
+    };
+    const up = (ev: MouseEvent) => {
+      const dropped = dragId.current;
+      // Hit-test before tearing down — hitTest skips the pane being dragged,
+      // which it can only know while dragId is still set. Then tear down
+      // unconditionally: a drop that lands on nothing must still restore the
+      // board rather than leave a ghost and a highlighted target behind.
+      const o = dropped ? hitTest(ev.clientX, ev.clientY) : null;
+      finish();
+      if (o?.kind === "snap") setGridLayout(o.id);
+      else if (o?.kind === "pane") {
+        // Drop onto another pane = SWAP their positions (works in every grid,
+        // Focus included: swapping into slot 0 makes that pane the spotlight).
+        // Read the live list: a pane can open or close mid-drag, and indices
+        // from a stale array would swap two unrelated panes.
+        const list = useAgentsStore.getState().agents;
+        const from = list.findIndex((b) => b.id === dropped);
+        const to = list.findIndex((b) => b.id === o.id);
+        if (from >= 0 && to >= 0) swapAgents(from, to);
+      }
+    };
+    // Escape aborts: the pane goes back where it was and no layout is applied.
+    const key = (ev: KeyboardEvent) => { if (ev.key === "Escape") finish(); };
+
+    endDrag.current = finish;
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    window.addEventListener("keydown", key);
   };
 
   /* ── agent sync ─────────────────────────────────────────────
@@ -208,6 +240,15 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
   useEffect(() => {
     invoke("detect_shells").then((s: any) => setShells(Array.isArray(s) ? s : [])).catch(() => {});
   }, []);
+
+  // Escape closes the add menu. Its click-outside backdrop is no help to
+  // someone who opened it by accident and never moves the pointer.
+  useEffect(() => {
+    if (!showAdd) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setShowAdd(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showAdd]);
 
   // Shut down the shared CDP browser when no browser panes remain.
   const browserCount = agents.filter((b) => b.kind === "browser").length;
@@ -309,13 +350,17 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
      without measuring anything. */
   const GAP = 8;      // grid gap (gap-2)
   const PEEK = 34;    // peeked titlebar height when scrolling
+  // Row floor. Under this a pane is mostly header: a terminal shows single
+  // digit lines and the chrome reads as broken. Better to scroll than to
+  // render something unusable.
+  const MIN_ROW = 180;
   const count = items.length;
 
-  // Maximized-pane overlay top offset: must match whichever header is
-  // actually showing above it. The board plane's header is the BoardStrip
-  // (44px, was hardcoded as `top-11`); every other plane uses the `h-9`
-  // (36px) toolbar rendered below. Keep this in sync with that className.
-  const maximizedTop = active === "board" ? 44 : 36;
+  // The plane header's height, in one place. The board plane's header is the
+  // BoardStrip (`h-11`); every other plane uses the `h-9` toolbar rendered
+  // below. Anything that must sit flush under the header measures from here
+  // rather than carrying its own copy of the number.
+  const headerH = active === "board" ? 44 : 36;
 
   /**
    * One pane, whichever view is showing. The grid wraps this in a slot and the
@@ -385,6 +430,11 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
     switch (gridLayout) {
       case "rows": return 1;
       case "cols": return count;
+      // Master is one tall pane beside a stack of the rest — always two
+      // columns. It used to fall through to the default branch and report a
+      // column count its own template never used, which made the overflow
+      // count below lie about how many panes were off-screen.
+      case "master": return 2;
       case "grid": return Math.ceil(Math.sqrt(count));
       case 1: case 2: case 3: case 4: return Math.min(gridLayout, count);
       default: return count <= 2 ? 2 : count <= 6 ? 3 : 4;
@@ -397,56 +447,79 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
   // side block up top and the 4-column overflow block below all line up.
   const cols = focusMode ? 12 : colsFor();
 
-  // rows visible per screen, and how many rows the content actually needs.
-  // Focus: 2 rows up top (spotlight height); panes 4+ overflow into a 4×2 grid
-  // below (4 per row), scrolling.
-  const rowsPerPage = focusMode ? 2 : preset?.rows ?? 1;
+  // How many rows the content actually needs, then how many of them share one
+  // screen. Focus: 2 rows up top (spotlight height); panes 4+ overflow into a
+  // 4-wide grid below, scrolling.
   const totalRows = focusMode
     ? 2 + Math.ceil(Math.max(0, count - 3) / 4)
+    : isMaster
+    ? Math.max(1, count - 1)
     : Math.max(1, Math.ceil(count / cols));
+  // Never reserve more rows than the layout fills. A 2×2 preset holding two
+  // panes used to keep the second row's height back and leave a dead band
+  // under them; the same happened to every grid preset as panes were closed.
+  // Legacy (non-preset) layouts fit all their rows on one screen — they had
+  // fixed 240px rows that ignored the plane's height entirely.
+  const rowsPerPage = Math.min(
+    focusMode ? 2 : preset ? preset.rows ?? 1 : gridLayout === "rows" ? 1 : totalRows,
+    totalRows,
+  );
   const overflow = totalRows > rowsPerPage;
   const subtract = (overflow ? PEEK : 0) + GAP * (rowsPerPage - 1);
-  const rowVal = `max(140px, calc((100cqh - ${subtract}px) / ${rowsPerPage}))`;
+  const rowVal = `max(${MIN_ROW}px, calc((100cqh - ${subtract}px) / ${rowsPerPage}))`;
   // How many panes sit below the visible rows — the PEEK sliver alone is easy
   // to miss with several panes open, so surface the count next to it too.
   const hiddenCount = !overflow ? 0 : focusMode ? count - 3 : Math.max(0, count - cols * rowsPerPage);
 
-  // Focus placement: spotlight (focused, else first) fills cols 1–2 (of the
-  // preset's split); the next two panes fill the remaining top columns as full
-  // rows; panes 4+ flow into a 4-wide grid below (each spans 3 of 12 tracks).
-  const spotlightId = focusMode
-    ? (items.some((b) => b.id === spotlightSel) ? spotlightSel : items[0]?.id)
-    : null;
-  const focusPlace = new Map<string, React.CSSProperties>();
+  // Explicit placement, for the two layouts whose slots aren't interchangeable.
+  //
+  // Focus: the spotlight is simply the pane in slot 0 — dragging a pane onto it
+  // swaps positions and promotes it, so there is no second selection to track.
+  // It fills cols 1..split-1; the next two panes fill the remaining top columns
+  // as full rows; panes 4+ flow into a 4-wide block below (3 of 12 tracks each).
+  const spotlightId = focusMode ? items[0]?.id : null;
+  const place = new Map<string, React.CSSProperties>();
   if (focusMode) {
     const split = focus4 ? 7 : 9; // spotlight occupies cols 1..split-1
     let c = 0; // index among non-spotlight panes
     for (const b of items) {
       if (b.id === spotlightId) {
-        focusPlace.set(b.id, { gridColumn: `1 / ${split}`, gridRow: "1 / 3" });
+        place.set(b.id, { gridColumn: `1 / ${split}`, gridRow: "1 / 3" });
       } else if (c === 0) {
-        focusPlace.set(b.id, { gridColumn: `${split} / 13`, gridRow: "1" });
+        // With only one pane beside the spotlight, give it the whole side
+        // column — otherwise half the grid sits visibly empty.
+        place.set(b.id, { gridColumn: `${split} / 13`, gridRow: count === 2 ? "1 / 3" : "1" });
         c++;
       } else if (c === 1) {
-        focusPlace.set(b.id, { gridColumn: `${split} / 13`, gridRow: "2" });
+        place.set(b.id, { gridColumn: `${split} / 13`, gridRow: "2" });
         c++;
       } else {
         const k = c - 2;
-        focusPlace.set(b.id, { gridColumn: `${1 + (k % 4) * 3} / span 3`, gridRow: `${3 + Math.floor(k / 4)}` });
+        place.set(b.id, { gridColumn: `${1 + (k % 4) * 3} / span 3`, gridRow: `${3 + Math.floor(k / 4)}` });
         c++;
       }
     }
+  } else if (isMaster && items[0]) {
+    // Master: the first pane owns the full-height left column. Without the
+    // span it just took cell (1,1) and the "master" layout rendered as a
+    // two-column grid with empty cells trailing off the bottom.
+    place.set(items[0].id, { gridColumn: "1", gridRow: "1 / -1" });
   }
 
-  const gridStyle = maximizedPane
+  /* A maximized pane fills the plane body — it is a one-cell grid, not an
+     overlay. As a `fixed` overlay it had to carry the header height and the
+     status bar height as magic numbers (wrong by a pixel in one plane, wrong
+     by the whole status bar in fullscreen) and it spilled under the sidebars,
+     which live outside this column entirely. Covering the window is what the
+     plane's own fullscreen toggle is for. */
+  const gridStyle: React.CSSProperties = maximizedPane
     ? { gridTemplateColumns: "1fr", gridTemplateRows: "1fr", height: "100%" }
     : isMaster
-    ? { gridTemplateColumns: "1.7fr 1fr", gridTemplateRows: `repeat(${count - 1}, minmax(180px, 1fr))`, gridAutoFlow: "row" as const }
-    : preset
-    ? { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: rowVal }
-    : { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: "minmax(240px, 1fr)" };
+    ? { gridTemplateColumns: "1.7fr 1fr", gridTemplateRows: `repeat(${totalRows}, minmax(0, 1fr))`, height: "100%" }
+    : { gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridAutoRows: rowVal };
 
   const Icon = PLANE_ICON[active];
+  const dragged = drag ? items.find((b) => b.id === drag.id) : undefined;
 
   // Chips for the Board strip — one per open component.
   const stripItems: StripItem[] = items.map((b) => ({
@@ -477,7 +550,7 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
         <div className="relative z-30 shrink-0">
           <BoardStrip
             items={stripItems}
-            activeId={spotlightSel ?? focusedPane}
+            activeId={focusedPane}
             showLogo={fullscreen}
             onSelect={(id) => {
               // Only scroll to + highlight the pane — do NOT move the Focus
@@ -558,12 +631,13 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
           applies that grid. Hit-testing is geometric (see hitTest) so it also
           works over terminal/webview panes and in fullscreen. */}
       {drag && (
-        <div className="pointer-events-none absolute inset-x-0 top-9 z-[60] flex justify-center px-4 pt-3">
+        <div className="pointer-events-none absolute inset-x-0 z-[60] flex justify-center px-4 pt-3" style={{ top: headerH }}>
           <div className="flex items-end gap-2 rounded-2xl border border-swarm-border/60 glass-hi px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-md animate-fade-in">
-            {/* A preset needs at least `cols` panes (2 for Focus, which is a
-                spotlight + one other) to look like anything but a smaller
-                preset — e.g. "4 columns" with 2 panes open is meaningless. */}
-            {GRID_PRESETS.filter((p) => count >= (p.focus ? 2 : p.cols)).map((p) => {
+            {/* Only offer presets the current pane count can actually fill:
+                a column preset needs its full column count, a grid preset needs
+                at least one pane on its second row (a 2×2 holding two panes is
+                just "2 columns"), and Focus needs a spotlight plus one other. */}
+            {GRID_PRESETS.filter((p) => count >= (p.focus ? 2 : p.rows ? p.cols + 1 : p.cols)).map((p) => {
               const hot = over?.kind === "snap" && over.id === p.id;
               return (
                 <div
@@ -628,30 +702,37 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
                   key={swarm.id}
                   data-pane-id={swarm.id}
                   onMouseDown={(e) => onPaneMouseDown(e, swarm)}
+                  // Focus marks the active pane and it stays marked. Clearing on
+                  // blur meant the accent vanished the moment you touched the
+                  // strip or the dock, so nothing on screen said which pane your
+                  // next keystroke belongs to.
                   onFocusCapture={() => setFocusedPane(swarm.id)}
-                  onBlurCapture={() => setFocusedPane((cur) => (cur === swarm.id ? null : cur))}
-                  className={`flex flex-col overflow-hidden glass shadow-glass hover:shadow-glass-lg ${
-                    isThisMax
-                      ? "fixed left-0 right-0 bottom-6 z-50 rounded-none shadow-2xl shadow-black/60"
-                      : shouldHide
+                  /* Only non-layout properties transition. `transition-all` also
+                     animated width/height, so every preset switch dragged each
+                     terminal through 300ms of intermediate sizes — a reflow storm
+                     for the pane ResizeObservers and visible reflowing text.
+                     The border is 2px on all four sides from the start (three of
+                     them transparent): `.pane-active` widens every side to 2px,
+                     so a pane that only had a top border shoved its own contents
+                     2px left and up the instant you focused it. */
+                  className={`flex flex-col overflow-hidden glass glass-lift animate-scale-in ${
+                    shouldHide
                       ? "hidden"
-                      : "relative h-full rounded-lg border-t-2 transition-all duration-300"
-                  } ${drag?.id === swarm.id ? "opacity-30 scale-[0.98]" : ""} ${
+                      : "relative h-full rounded-lg border-2 border-transparent transition-[box-shadow,border-color,opacity] duration-200"
+                  } ${drag?.id === swarm.id ? "opacity-30" : ""} ${
                     over?.kind === "pane" && over.id === swarm.id ? "ring-2 ring-swarm-gold/70" : ""
                   } ${focusedPane === swarm.id && !isThisMax ? "pane-active" : ""}`}
                   style={
-                    isThisMax
-                      ? { top: maximizedTop }
-                      : !shouldHide
-                      ? {
+                    shouldHide
+                      ? undefined
+                      : {
                           // Same top edge for every class — class identity is the
                           // strip/header dot only. Accent only while a drop targets it.
                           borderTopColor: over?.kind === "pane" && over.id === swarm.id
                             ? themeForKind(swarm.kind).accent
                             : "rgb(var(--swarm-border))",
-                          ...(focusMode ? focusPlace.get(swarm.id) : null),
+                          ...place.get(swarm.id),
                         }
-                      : undefined
                   }
                 >
                   {renderPane(swarm, isThisMax)}
@@ -664,7 +745,7 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
         {/* Overflow hint — the PEEK sliver alone (~34px of the next row's
             titlebar) is easy to miss with several panes open, so also call
             out how many are below. */}
-        {!canvasView && overflow && hiddenCount > 0 && (
+        {!canvasView && !maximizedPane && overflow && hiddenCount > 0 && (
           <div className="pointer-events-none sticky inset-x-0 bottom-1 z-20 flex justify-center">
             <span className="pointer-events-none flex items-center gap-1 rounded-full border border-swarm-gold/40 glass-hi px-2 py-0.5 text-micro font-medium text-swarm-goldHi shadow-lg">
               <ChevronDown className="size-3" />
@@ -674,13 +755,18 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
         )}
       </div>
 
-      {/* Drag ghost — a small label chip following the cursor while dragging. */}
+      {/* Drag ghost — a small label chip following the cursor while dragging.
+          Anchored at the origin and moved by transform: `move` writes that
+          transform directly (see onPaneMouseDown), so only this first frame is
+          positioned from React. It wears the dragged pane's own icon, not the
+          plane's, so you can tell which terminal is in your hand. */}
       {drag && (
         <div
-          className="pointer-events-none fixed z-[70] flex items-center gap-1.5 rounded-lg border border-swarm-gold/50 glass-hi px-2.5 py-1 text-mini font-medium text-swarm-goldHi shadow-xl shadow-black/50"
-          style={{ left: pointer.x + 14, top: pointer.y + 14 }}
+          ref={ghostRef}
+          className="pointer-events-none fixed left-0 top-0 z-[70] flex items-center gap-1.5 rounded-lg border border-swarm-gold/50 glass-hi px-2.5 py-1 text-mini font-medium text-swarm-goldHi shadow-xl shadow-black/50"
+          style={{ transform: `translate3d(${pointerRef.current.x + 14}px, ${pointerRef.current.y + 14}px, 0)` }}
         >
-          <Icon className="size-3.5" />
+          {dragged ? paneIconNode(dragged, "size-3.5") : <Icon className="size-3.5" />}
           {drag.name}
         </div>
       )}

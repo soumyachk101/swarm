@@ -8,9 +8,12 @@ import type { GridLayout } from "@swarm/agents/ui";
  *    panes stay large and the plane scrolls once there are more than N.
  *  - Grid presets (NxM): N columns and M rows fill one screen exactly; panes
  *    shrink to fit and extra panes scroll below.
- *  - Focus: a spotlight pane (2 columns wide) with the rest stacked in the
- *    third column.
+ *  - Focus: a tall spotlight pane with two panes stacked beside it; anything
+ *    past those three flows into a 4-wide block below and scrolls. (Focus ×4
+ *    only widens the side column — the spotlight keeps half the width.)
  * `rows` = rows-per-screen (a grid preset's M); undefined ⇒ 1 (column preset).
+ * The host caps rows-per-screen at the number of rows the panes actually fill,
+ * so a preset never reserves height for a row that has nothing in it.
  */
 export interface GridPreset {
   id: GridLayout;

@@ -9,11 +9,14 @@ import { useThemeStore } from "@/shared/themeStore";
 /**
  * Theme chooser.
  *
- * Three themes instead of eight means each one can be shown rather than named.
  * Every row renders a real miniature of the UI — canvas, pane, title bar, text
  * and accent, drawn from that theme's own tokens — so the choice is made by
  * looking, not by reading a label and hoping.
  */
+
+/** Must match the `w-[19rem]` on the panel below — the clamp needs a number. */
+const MENU_W = 304;
+
 export default function ThemePicker() {
   const themeId = useThemeStore((s) => s.themeId);
   const setThemeId = useThemeStore((s) => s.setThemeId);
@@ -50,7 +53,19 @@ export default function ThemePicker() {
   useEffect(() => {
     if (!open) return;
     const el = menuRef.current?.querySelector<HTMLButtonElement>('[data-theme-row][aria-checked="true"]');
-    el?.focus();
+    // `nearest` and not the default: a plain focus() jump-scrolled the list so
+    // the active theme landed at the very top with the ones above it hidden.
+    el?.scrollIntoView({ block: "nearest" });
+    el?.focus({ preventScroll: true });
+  }, [open]);
+
+  // The panel is placed from a rect measured at open time; a window resize
+  // leaves it floating away from its button, so close rather than mis-place it.
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("resize", close);
+    return () => window.removeEventListener("resize", close);
   }, [open]);
 
   const current = THEMES.find((t) => t.id === themeId) ?? THEMES[0];
@@ -85,10 +100,18 @@ export default function ThemePicker() {
               ref={menuRef}
               role="menu"
               aria-label="Choose theme"
-              className="fixed z-[201] w-[19rem] overflow-hidden rounded-xl glass-hi glass-sheen p-1.5 shadow-glassHi animate-fade-in"
+              className="fixed z-[201] w-[19rem] overflow-y-auto scrollbar-sleek rounded-xl glass-hi glass-sheen p-1.5 shadow-glassHi animate-fade-in"
+              // Right-anchoring alone only guarded the right edge: with the
+              // trigger near the left of a narrow window the panel ran off the
+              // left instead. Eight themes at ~60px a row also overflow a short
+              // window, hence the cap and the scroller.
               style={{
                 top: rect.bottom + 6,
-                right: Math.max(8, window.innerWidth - rect.right),
+                right: Math.min(
+                  Math.max(8, window.innerWidth - rect.right),
+                  Math.max(8, window.innerWidth - MENU_W - 8),
+                ),
+                maxHeight: Math.max(160, window.innerHeight - rect.bottom - 16),
               }}
             >
               <div className="px-2 pb-1.5 pt-1 text-micro font-semibold uppercase tracking-wider text-swarm-textMuted">

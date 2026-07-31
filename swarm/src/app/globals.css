@@ -84,13 +84,42 @@ body {
   letter-spacing: -0.008em;
 }
 
-/* Terminal panes and code keep tabular figures so columns never wobble */
-.font-mono, code, kbd, pre {
+/* Terminal panes and code keep tabular figures so columns never wobble.
+   The three resets undo body's UI typography, which inherits into here: xterm
+   measures ONE glyph and lays every cell of the grid out on that width, so
+   body's negative tracking, its stylistic sets and optimizeLegibility's
+   ligature/kerning pass all shift glyphs off the cell they were measured for.
+   The drift is sub-pixel per column and a full character by column 80 — which
+   is exactly the "terminals don't look right" everyone sees and nobody can
+   name. */
+.font-mono, code, kbd, pre, .xterm {
   font-variant-numeric: tabular-nums;
+  letter-spacing: normal;
+  font-feature-settings: normal;
+  text-rendering: auto;
 }
 
-/* Global scrollbar — extremely thin, themed, unobtrusive. */
-* {
+/* Selection had no theme colour, so every surface fell back to the platform
+   blue — the one non-themed pixel in an eight-theme app. */
+::selection {
+  background: rgb(var(--swarm-gold) / 0.3);
+  color: rgb(var(--swarm-text));
+}
+
+/* Baseline for the many buttons that ship no disabled treatment of their own.
+   Kept in :where() so it has zero specificity: any component that already
+   picks its own `disabled:opacity-*` still wins without needing !important. */
+:where(button, [role="button"]):disabled,
+:where([aria-disabled="true"]) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Global scrollbar — extremely thin, themed, unobtrusive. Set on the root and
+   inherited, not sprayed via `*`: both properties inherit, and re-asserting
+   them on every element is what stopped `.xterm-viewport { scrollbar-width:
+   none }` from reaching the scroller Firefox actually sizes. */
+html {
   scrollbar-width: thin;
   scrollbar-color: rgb(var(--swarm-gold) / 0.3) transparent;
 }
@@ -209,6 +238,16 @@ select:focus {
    *   - a bright 1px inset at the top edge and a dark one at the bottom, which
    *     is what a real pane of glass does to light at its edges;
    *   - a shadow tinted with the theme's own hue rather than pure black.
+   *
+   * Blur radii come from ONE scale — 14px for everything that sits on the
+   * canvas, 22px for the popover tier (the same two steps tailwind.config
+   * already declares as backdropBlur.glass / .glassHi). They used to be
+   * 16/18/20/20/28, five ad-hoc numbers, and a full grid of panes stacked
+   * toolbar + pane + body + rail blurs on top of each other every frame.
+   * Backdrop blur cost scales with radius AND with how many of them the
+   * compositor has to resolve in sequence, and past ~14px on a dark surface
+   * the difference is not visible — so the pane grid got roughly a third of
+   * its blur work back for no change you can point at.
    */
 
   /*
@@ -236,8 +275,8 @@ select:focus {
       rgb(var(--swarm-surface-hi) / 0.82),
       rgb(var(--swarm-surface) / 0.68)
     );
-    backdrop-filter: blur(16px) saturate(1.5);
-    -webkit-backdrop-filter: blur(16px) saturate(1.5);
+    backdrop-filter: blur(14px) saturate(1.5);
+    -webkit-backdrop-filter: blur(14px) saturate(1.5);
     box-shadow:
       inset 0 1px 0 0 rgb(var(--swarm-text) / 0.07),
       inset 0 -1px 0 0 rgb(0 0 0 / 0.22);
@@ -251,8 +290,8 @@ select:focus {
       rgb(var(--swarm-surface) / 0.58) 55%,
       rgb(var(--swarm-canvas-hi) / 0.62)
     );
-    backdrop-filter: blur(18px) saturate(1.6);
-    -webkit-backdrop-filter: blur(18px) saturate(1.6);
+    backdrop-filter: blur(14px) saturate(1.6);
+    -webkit-backdrop-filter: blur(14px) saturate(1.6);
     border: 1px solid rgb(var(--swarm-border) / 0.55);
     box-shadow:
       0 10px 30px -14px rgb(0 0 0 / 0.62),
@@ -270,8 +309,8 @@ select:focus {
       rgb(var(--swarm-surface) / 0.8) 60%,
       rgb(var(--swarm-canvas-hi) / 0.84)
     );
-    backdrop-filter: blur(28px) saturate(1.7);
-    -webkit-backdrop-filter: blur(28px) saturate(1.7);
+    backdrop-filter: blur(22px) saturate(1.7);
+    -webkit-backdrop-filter: blur(22px) saturate(1.7);
     border: 1px solid rgb(var(--swarm-border) / 0.75);
     box-shadow:
       0 20px 48px -18px rgb(0 0 0 / 0.72),
@@ -285,6 +324,13 @@ select:focus {
    * canvas behind it are genuinely visible through the pane, opaque enough
    * that a terminal full of small text stays crisp. That balance is the whole
    * job: below about 0.78 the dot grid starts showing through code.
+   *
+   * Deliberately has NO backdrop-filter. It is always a child of .glass, which
+   * has already blurred the canvas — re-blurring an image that is (a) blurred
+   * and (b) covered by an 80-86% opaque wash produces no pixel you can see,
+   * while costing one full-pane compositing pass per pane per frame. With a
+   * grid of panes that was the most expensive invisible thing in the app, and
+   * the terminal panes hide it completely behind an opaque canvas anyway.
    */
   .glass-body {
     background-image: linear-gradient(
@@ -292,8 +338,6 @@ select:focus {
       rgb(var(--swarm-canvas-hi) / 0.86),
       rgb(var(--swarm-canvas) / 0.8)
     );
-    backdrop-filter: blur(20px) saturate(1.35);
-    -webkit-backdrop-filter: blur(20px) saturate(1.35);
   }
 
   /* Elevation -1: inputs, wells, anything that reads as cut INTO the glass. */
@@ -316,9 +360,24 @@ select:focus {
       rgb(var(--swarm-surface) / 0.7),
       rgb(var(--swarm-canvas-hi) / 0.62)
     );
-    backdrop-filter: blur(20px) saturate(1.5);
-    -webkit-backdrop-filter: blur(20px) saturate(1.5);
+    backdrop-filter: blur(14px) saturate(1.5);
+    -webkit-backdrop-filter: blur(14px) saturate(1.5);
     box-shadow: inset -1px 0 0 0 rgb(var(--swarm-text) / 0.05);
+  }
+
+  /* The hover binding for the lifted shadow below. Tailwind cannot supply a
+     `hover:` variant here: `shadow-glass-lg` is a component class, not a key
+     in the theme's boxShadow scale, so `hover:shadow-glass-lg` compiles to
+     nothing and the lift silently never happens. */
+  .glass-lift {
+    transition: box-shadow 0.24s ease, border-color 0.24s ease;
+  }
+  .glass-lift:hover {
+    box-shadow:
+      0 16px 38px -14px rgb(0 0 0 / 0.7),
+      0 3px 10px -4px rgb(var(--swarm-gold) / 0.1),
+      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.13),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.28);
   }
 
   /* Lift on hover. Paired with .glass on anything interactive. */
@@ -350,50 +409,45 @@ select:focus {
     );
   }
 
-  /* Active pane — clear accent glow when its input/terminal is focused.
-     Thicker border + outer glow so focus reads at a glance across a grid
-     of similarly-themed panes, not just a 1px edge. */
+  /*
+   * Active pane — the focused one, across a grid of identical ones.
+   *
+   * An outline rather than a border + glow, for two reasons that were both
+   * live bugs. It used to bump border-width 1px -> 2px, which changes the
+   * pane's content box: the terminal inside re-fit its whole character grid
+   * on every focus change, so clicking between panes made the text jump. And
+   * its glow was a box-shadow declared here in the components layer, which
+   * loses the cascade tie to the `shadow-glass` utility the pane also carries
+   * — so the glow never actually painted. Outline is painted outside layout
+   * and fights nothing, which also leaves box-shadow free for the drag-drop
+   * ring, and leaves the drop-target's accent top border visible.
+   *
+   * Near-opaque so it survives the low-contrast accents in the darker themes,
+   * where a 0.18-alpha gold ring was invisible against its own pane.
+   */
   .pane-active {
-    border-width: 2px !important;
-    border-color: rgb(var(--swarm-gold) / 0.75) !important;
-    box-shadow: 0 0 0 1px rgb(var(--swarm-gold) / 0.45),
-      0 0 0 4px rgb(var(--swarm-gold) / 0.18),
-      0 10px 30px -14px rgb(var(--swarm-gold) / 0.5),
-      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.05);
+    outline: 2px solid rgb(var(--swarm-gold) / 0.9);
+    outline-offset: -1px;
   }
 
-  /* Sleek customized scrollbar */
+  /*
+   * Two thinner variants of the global bar. They only override the track
+   * WIDTH — track/thumb/hover colours are inherited from the global
+   * ::-webkit-scrollbar rules above, which they used to restate at very
+   * slightly different alphas. Three near-identical treatments meant a list
+   * and the strip beside it drew visibly different greys; now there is one
+   * colour and three sizes. Firefox has no per-element sizing beyond
+   * `thin`/`none`, so it keeps the global thin bar for all three — the two
+   * engines agree on colour, which is the part you can see.
+   */
   .scrollbar-sleek::-webkit-scrollbar {
     width: 5px;
     height: 5px;
-  }
-
-  .scrollbar-sleek::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  .scrollbar-sleek::-webkit-scrollbar-thumb {
-    background: rgb(var(--swarm-gold) / 0.25);
-    border-radius: 999px;
-  }
-
-  .scrollbar-sleek::-webkit-scrollbar-thumb:hover {
-    background: rgb(var(--swarm-gold) / 0.5);
   }
 
   /* Hairline horizontal scrollbar — for the tab strip */
   .scrollbar-hair::-webkit-scrollbar {
     width: 3px;
     height: 3px;
-  }
-  .scrollbar-hair::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .scrollbar-hair::-webkit-scrollbar-thumb {
-    background: rgb(var(--swarm-gold) / 0.25);
-    border-radius: 999px;
-  }
-  .scrollbar-hair::-webkit-scrollbar-thumb:hover {
-    background: rgb(var(--swarm-gold) / 0.5);
   }
 }

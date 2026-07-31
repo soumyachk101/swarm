@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { GitBranch, ChevronDown, Check } from "lucide-react";
 import type { Worktree } from "../store.js";
@@ -24,6 +24,16 @@ export default function WorktreeSelect({
   // ponytail: measured on open, not tracked on scroll/resize — menu closes on
   // any outside interaction anyway, so a stale rect can't linger.
   const [rect, setRect] = useState<DOMRect | null>(null);
+
+  // Escape has to close it: the backdrop only catches pointers, so a keyboard
+  // user who opened the menu had no way out of it.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   if (!trees.length) return null; // nothing to pick until trees exist
 
   const current = trees.find((t) => t.id === value);
@@ -38,6 +48,8 @@ export default function WorktreeSelect({
           setOpen((v) => !v);
         }}
         title={current ? `Tree: ${current.name} (${current.branch})` : "Main repo"}
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="flex items-center gap-1 rounded-md border border-swarm-border/60 glass-inset px-1.5 py-0.5 text-micro font-medium text-swarm-textDim hover:text-swarm-text hover:border-swarm-gold/40 transition-colors max-w-[120px]"
       >
         <GitBranch className="size-3 shrink-0 text-swarm-gold" />
@@ -47,10 +59,18 @@ export default function WorktreeSelect({
 
       {open && rect && createPortal(
         <>
-          <div className="fixed inset-0 z-[200]" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-[200]" onClick={() => setOpen(false)} onContextMenu={(e) => { e.preventDefault(); setOpen(false); }} />
+          {/* Flips above the button when there isn't room below, and scrolls
+              past ~8 trees. Pinned to rect.bottom it ran off the bottom of the
+              window for any pane in the lower half of the board, where the list
+              was simply unreachable. */}
           <div
-            className="fixed z-[201] min-w-40 max-w-56 overflow-hidden rounded-lg glass-hi py-1 shadow-glassHi"
-            style={{ top: rect.bottom + 4, right: window.innerWidth - rect.right }}
+            className="fixed z-[201] min-w-40 max-w-56 max-h-64 overflow-y-auto scrollbar-sleek rounded-lg glass-hi py-1 shadow-glassHi"
+            style={
+              window.innerHeight - rect.bottom < 200 && rect.top > 200
+                ? { bottom: window.innerHeight - rect.top + 4, right: window.innerWidth - rect.right }
+                : { top: rect.bottom + 4, right: window.innerWidth - rect.right }
+            }
           >
             <MenuRow active={!value} onClick={() => { onChange(undefined); setOpen(false); }} label="Main" sub="bound repo" />
             {trees.map((t) => (

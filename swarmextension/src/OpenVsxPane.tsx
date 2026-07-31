@@ -17,8 +17,8 @@ import OpenVsxLogo from "./OpenVsxLogo";
  */
 const BIN_KEY = "swarm_openvsx_bin";
 // A tool extension is its own class (green). An AGENT extension — Claude Code,
-// Kilo Code, OpenChamber — is a Agent that happens to live in an editor, so
-// it wears the Agent yellow like any other swarm. `crown` is only supplied for
+// Kilo Code, OpenChamber — is an agent that happens to live in an editor, so it
+// wears the agent yellow like any other pane. `crown` is only supplied for
 // those, which makes it the honest signal for which dot to show.
 const TOOL_ACCENT = themeForKind("openvsx").accent;
 
@@ -61,10 +61,19 @@ export default function OpenVsxPane({ paneId, workingDir, tabName = "SwarmExtens
     try {
       await invoke("start_openvsx", { paneId, bin: bin || null, port, extensions: extensionId ? [extensionId] : null, env: env ?? null });
       // poll readiness
-      for (let i = 0; i < 60; i++) {
-        const ready = await invoke<boolean>("openvsx_ready", { port }).catch(() => false);
-        if (ready) break;
-        await new Promise((r) => setTimeout(r, 500));
+      let ready = false;
+      for (let i = 0; i < 60 && !ready; i++) {
+        ready = await invoke<boolean>("openvsx_ready", { port }).catch(() => false);
+        if (!ready) await new Promise((r) => setTimeout(r, 500));
+      }
+      // The loop used to fall through on timeout and point the iframe at a port
+      // nothing was listening on — 30 seconds of spinner followed by a blank
+      // white rectangle and no explanation. Failing here lands in the error
+      // state below, which at least offers Retry and Set binary.
+      if (!ready) {
+        throw new Error(
+          `The editor server never answered on port ${port}. It may have failed to start, or it is still unpacking extensions — Retry usually works.`,
+        );
       }
       const folder = workingDir ? `?folder=${encodeURIComponent(workingDir)}` : "";
       setSrc(`http://127.0.0.1:${port}/${folder}`);
@@ -93,7 +102,7 @@ export default function OpenVsxPane({ paneId, workingDir, tabName = "SwarmExtens
           <span
             className="size-1.5 shrink-0 rounded-full"
             style={{ background: crown ? CLASS_COLORS.worker : TOOL_ACCENT }}
-            title={crown ? "Agent extension — a Agent" : "Editor extension"}
+            title={crown ? "Agent extension — joins the swarm" : "Editor extension"}
           />
           <OpenVsxLogo size={13} className="shrink-0 text-swarm-textMuted" />
           <span className="truncate text-xs font-medium text-swarm-text">{tabName}</span>
@@ -109,7 +118,7 @@ export default function OpenVsxPane({ paneId, workingDir, tabName = "SwarmExtens
                   ? "bg-swarm-gold/20 text-swarm-goldHi"
                   : crown.taken
                     ? "cursor-not-allowed text-swarm-textMuted/40"
-                    : "text-swarm-textMuted hover:bg-black/30 hover:text-swarm-gold"
+                    : "text-swarm-textMuted hover:bg-swarm-border/50 hover:text-swarm-gold"
               }`}
               title={
                 crown.isLead
@@ -122,15 +131,15 @@ export default function OpenVsxPane({ paneId, workingDir, tabName = "SwarmExtens
               <LeadCrown size={13} />
             </button>
           )}
-          <button onClick={() => setConfiguring(true)} className="rounded p-1 text-swarm-textMuted hover:bg-black/30 hover:text-swarm-text" title="Editor server (optional override)">
+          <button onClick={() => setConfiguring(true)} className="rounded p-1 text-swarm-textMuted hover:bg-swarm-border/50 hover:text-swarm-text" title="Editor server (optional override)">
             <KeyRound className="size-3.5" />
           </button>
           {onToggleMaximize && (
-            <button onClick={onToggleMaximize} className="rounded p-1 text-swarm-textMuted hover:bg-black/30 hover:text-swarm-text" title={isMaximized ? "Restore" : "Maximize"}>
+            <button onClick={onToggleMaximize} className="rounded p-1 text-swarm-textMuted hover:bg-swarm-border/50 hover:text-swarm-text" title={isMaximized ? "Restore" : "Maximize"}>
               {isMaximized ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
             </button>
           )}
-          <button onClick={onClose} className="rounded p-1 text-swarm-textMuted hover:bg-black/30 hover:text-swarm-text" title="Close">
+          <button onClick={onClose} className="rounded p-1 text-swarm-textMuted hover:bg-swarm-border/50 hover:text-swarm-text" title="Close">
             <X className="size-3.5" />
           </button>
         </div>
@@ -179,9 +188,14 @@ export default function OpenVsxPane({ paneId, workingDir, tabName = "SwarmExtens
             </div>
           </div>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-swarm-textMuted">
+          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-swarm-textMuted">
             <RefreshCw className="size-5 animate-spin text-swarm-honey" />
-            <span className="text-xs">Starting openvscode-server…</span>
+            <span className="text-xs">Starting the editor server…</span>
+            {/* A silent 30s spinner is indistinguishable from a hang. Naming the
+                slow part up front stops it from reading as one. */}
+            <span className="max-w-[36ch] text-micro leading-relaxed">
+              First run installs extensions, which can take half a minute.
+            </span>
           </div>
         )}
       </div>

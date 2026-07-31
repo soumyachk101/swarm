@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { GRID, screenToWorld, type Camera } from "./camera.js";
+import { DEFAULT_CAMERA, GRID, clampZoom, screenToWorld, type Camera } from "./camera.js";
 import { useCanvasStore } from "./canvasStore.js";
 import CanvasNode from "./CanvasNode.js";
 import CanvasControls from "./CanvasControls.js";
@@ -13,7 +13,7 @@ export interface CanvasItem {
 }
 
 interface Props {
-  /** Camera and layout are kept per agent. */
+  /** Camera and layout are kept per swarm. */
   swarmId: string;
   items: CanvasItem[];
   /** Fired when the user drops something onto empty canvas, in world coords. */
@@ -24,7 +24,7 @@ interface Props {
 }
 
 /**
- * An infinite canvas for a agent: every agent, terminal, browser and toolbox
+ * An infinite canvas for a swarm: every agent, terminal, browser and toolbox
  * is a node you place where you want it, and the whole surface pans and zooms.
  *
  * The board's grid answers "show me everything in equal slots". The canvas
@@ -43,7 +43,12 @@ export default function FlowCanvas({
   const ensureNode = useCanvasStore((s) => s.ensureNode);
   const panCamera = useCanvasStore((s) => s.panCamera);
   const zoomCamera = useCanvasStore((s) => s.zoomCamera);
-  const cam: Camera = cameras[swarmId] ?? { x: 0, y: 0, zoom: 1 };
+  // Cameras are rehydrated straight out of localStorage, so they skip the
+  // clamp every setter applies. A zoom of 0 or NaN from an older build (or a
+  // hand-edited store) would collapse `scale()` and blank the whole canvas with
+  // no visible way back, so the value is re-clamped on the way in.
+  const stored = cameras[swarmId];
+  const cam: Camera = stored ? { ...stored, zoom: clampZoom(stored.zoom) || 1 } : DEFAULT_CAMERA;
 
   const ids = items.map((i) => i.id);
   const idKey = ids.join("|");
@@ -52,15 +57,15 @@ export default function FlowCanvas({
    * Give every new pane a spot on the canvas.
    *
    * Deliberately does NOT prune the ones it cannot see. `items` is already
-   * filtered to the active agent and the active plane, so pruning here
-   * would throw away the layout of every OTHER agent the moment you
+   * filtered to the active swarm and the active plane, so pruning here
+   * would throw away the layout of every OTHER swarm the moment you
    * switched to this one. A pane's geometry is discarded where the pane is
    * actually destroyed (PlaneHost's remove handler), which is the only place
    * that knows the difference between "gone" and "not currently shown".
    */
   // useLayoutEffect, not useEffect: a node with no geometry yet renders as
   // null, so running this after paint would mount every pane, drop it for a
-  // frame, then mount it again — and a Agent pane being torn down and
+  // frame, then mount it again — and an agent pane being torn down and
   // rebuilt means its terminal goes with it.
   useLayoutEffect(() => {
     for (const id of ids) ensureNode(id, ids);
@@ -106,8 +111,9 @@ export default function FlowCanvas({
   const onWheel = useCallback((e: WheelEvent) => {
     const el = viewportRef.current;
     if (!el) return;
-    // Trackpad two-finger scroll pans; ctrl/cmd + wheel (and mouse wheel) zooms.
-    // That matches every other canvas tool, so muscle memory carries over.
+    // Scroll (trackpad or wheel) pans; ctrl/cmd + scroll zooms — and a trackpad
+    // pinch arrives as ctrl+wheel, so pinch-to-zoom lands here too. That matches
+    // every other canvas tool, so muscle memory carries over.
     const r = el.getBoundingClientRect();
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -133,7 +139,23 @@ export default function FlowCanvas({
     return () => el.removeEventListener("wheel", onWheel);
   }, [onWheel]);
 
-  const dot = GRID * cam.zoom;
+  // Switching view or unmounting mid-zoom would otherwise fire onZoomSettled
+  // (a terminal re-measure) against panes that are already gone.
+  useEffect(() => () => {
+    if (settleTimer.current) window.clearTimeout(settleTimer.current);
+  }, []);
+
+  /*
+   * The dot grid is drawn at a fixed world pitch, so at MIN_ZOOM it would land
+   * at 4px on screen — dense enough to alias into moiré bands that crawl as you
+   * pan. Step the pitch up by powers of two until the dots are at least
+   * MIN_DOT_PX apart: the floor stays legible at every zoom, and doubling
+   * (rather than an arbitrary factor) keeps every coarser grid aligned with the
+   * lines of the finer one, so the floor never appears to shift as it changes.
+   */
+  const MIN_DOT_PX = 11;
+  const rawDot = GRID * cam.zoom;
+  const dot = rawDot * 2 ** Math.max(0, Math.ceil(Math.log2(MIN_DOT_PX / rawDot)));
   const originX = cam.x * cam.zoom;
   const originY = cam.y * cam.zoom;
 
@@ -143,6 +165,9 @@ export default function FlowCanvas({
       /* Fills its parent outright rather than relying on flex sizing: this
          renders inside a plain block container, where `flex-1` is inert. */
       className={`absolute inset-0 overflow-hidden ${isPanning ? "cursor-grabbing" : "cursor-grab"}`}
+      /* touch-action:none, or a pen/touch drag is claimed by the browser's own
+         scroll gesture and our pointermove stream stops mid-pan. */
+      style={{ touchAction: "none" }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endPan}

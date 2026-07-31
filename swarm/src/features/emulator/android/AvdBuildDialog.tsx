@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Smartphone, Lock, AlertTriangle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -15,6 +15,28 @@ interface Props {
   onClose: () => void;
   onBuilt: (name: string) => void;
 }
+
+/**
+ * Declared at module scope on purpose. As a closure inside the dialog body it
+ * was a *new component type* on every render, so React tore down and rebuilt
+ * its subtree each keystroke — the Name field lost focus after every single
+ * character typed into it.
+ */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="w-24 shrink-0 pt-1 text-mini text-swarm-textMuted">{label}</span>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
+const chip = (active: boolean) =>
+  `rounded-md border px-2 py-1 text-mini transition-colors ${
+    active
+      ? "border-swarm-gold/50 bg-swarm-gold/15 text-swarm-goldHi"
+      : "border-swarm-border/60 text-swarm-textDim hover:border-swarm-gold/30 hover:text-swarm-text"
+  }`;
 
 /**
  * Build an emulator. Hardware picked here is permanent — the emulator boots a
@@ -38,6 +60,22 @@ export default function AvdBuildDialog({ sdk, onClose, onBuilt }: Props) {
     ? { name, displayName: displayName.trim() || name, device, image, ramMb, dataSizeGb, cores }
     : null;
   const errors = spec ? validateSpec(spec, sdk.avds) : ["No system image installed."];
+  // The only field the user can actually get wrong is the name, so that is the
+  // one that gets marked — outlining nothing left "Build emulator" greyed out
+  // with no indication of which control was to blame.
+  const nameError = !!spec && errors.length > 0 && /name/i.test(errors[0]);
+
+  const nameRef = useRef<HTMLInputElement>(null);
+
+  // Focus the first field on open and honour Escape. A modal you can only leave
+  // by hunting for its × is the sort of thing that reads as a broken app.
+  useEffect(() => {
+    nameRef.current?.focus();
+    nameRef.current?.select();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const build = async () => {
     if (!spec || errors.length || !sdk.sdkPath) return;
@@ -56,24 +94,22 @@ export default function AvdBuildDialog({ sdk, onClose, onBuilt }: Props) {
     }
   };
 
-  const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div className="flex items-center gap-3">
-      <span className="w-24 shrink-0 text-mini text-swarm-textMuted">{label}</span>
-      <div className="min-w-0 flex-1">{children}</div>
-    </div>
-  );
-
-  const chip = (active: boolean) =>
-    `rounded-md border px-2 py-1 text-mini transition-colors ${
-      active
-        ? "border-swarm-gold/50 bg-swarm-gold/15 text-swarm-goldHi"
-        : "border-swarm-border/60 text-swarm-textDim hover:border-swarm-gold/30 hover:text-swarm-text"
-    }`;
-
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md overflow-hidden rounded-xl glass-hi shadow-2xl">
-        <div className="flex items-center gap-2 border-b border-swarm-border/40 px-3 py-2.5">
+    <div
+      className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Build an emulator"
+        onClick={(e) => e.stopPropagation()}
+        // Tall panes are the exception, not the rule: with several system
+        // images installed the form outgrew a short pane and the Build button
+        // ended up below the fold with no way to scroll to it.
+        className="flex max-h-full w-full max-w-md flex-col overflow-hidden rounded-xl glass-hi shadow-2xl"
+      >
+        <div className="flex shrink-0 items-center gap-2 border-b border-swarm-border/40 px-3 py-2.5">
           <Smartphone className="size-3.5 text-swarm-gold" />
           <span className="text-xs font-semibold text-swarm-text">Build an emulator</span>
           <button
@@ -84,12 +120,16 @@ export default function AvdBuildDialog({ sdk, onClose, onBuilt }: Props) {
           </button>
         </div>
 
-        <div className="space-y-3 p-3">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto scrollbar-sleek p-3">
           <Row label="Name">
             <input
+              ref={nameRef}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full rounded-md border border-swarm-border/50 glass-inset px-2 py-1 text-mini text-swarm-text outline-none focus:border-swarm-gold/40"
+              aria-invalid={nameError}
+              className={`w-full rounded-md border glass-inset px-2 py-1 text-mini text-swarm-text outline-none ${
+                nameError ? "border-swarm-err/60" : "border-swarm-border/50 focus:border-swarm-gold/40"
+              }`}
             />
             {name && name !== displayName.trim() && (
               <span className="mt-0.5 block text-micro text-swarm-textMuted">id: {name}</span>
@@ -182,7 +222,7 @@ export default function AvdBuildDialog({ sdk, onClose, onBuilt }: Props) {
           )}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-swarm-border/40 px-3 py-2">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-swarm-border/40 px-3 py-2">
           <button
             onClick={onClose}
             className="rounded-md px-2.5 py-1 text-mini text-swarm-textDim transition-colors hover:text-swarm-text"
@@ -192,6 +232,9 @@ export default function AvdBuildDialog({ sdk, onClose, onBuilt }: Props) {
           <button
             onClick={build}
             disabled={busy || errors.length > 0 || !sdk.sdkPath}
+            // A greyed-out button with no reason attached is the classic dead
+            // end; the blocking error rides along as the tooltip.
+            title={errors[0] ?? (sdk.sdkPath ? undefined : "Android SDK not found")}
             className="rounded-md border border-swarm-gold/25 bg-swarm-gold/10 px-2.5 py-1 text-mini font-medium text-swarm-goldHi transition-colors hover:bg-swarm-gold/20 disabled:opacity-40"
           >
             {busy ? "Building…" : "Build emulator"}

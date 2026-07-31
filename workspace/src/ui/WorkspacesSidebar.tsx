@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { activatable, AgentMark, WorkspaceMark } from "@swarm/board";
+import { activatable, WorkspaceMark } from "@swarm/board";
 import {
   Search,
   X,
@@ -40,14 +40,19 @@ import WorkspaceCreateDialog from "./WorkspaceCreateDialog.js";
 
 const MIN_WIDTH = 220;
 const MAX_WIDTH = 500;
+const WIDTH_KEY = "swarm.sidebarWidth";
+
+const clampWidth = (px: number) => Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, px));
 
 type LeftTab = "workspaces" | "explorer" | "search";
 
+// Tokens, not raw Tailwind palette entries: bg-green-400 stayed the same green
+// in Rose, Forest and Dracula and clashed with every one of them.
 const STATUS_DOT_CLASS: Record<AgentStatus, string> = {
-  launching: "bg-yellow-400",
-  running: "bg-green-400",
+  launching: "bg-swarm-warn",
+  running: "bg-swarm-ok",
   idle: "bg-swarm-textMuted",
-  error: "bg-red-400",
+  error: "bg-swarm-err",
   done: "bg-swarm-gold",
 };
 
@@ -57,10 +62,6 @@ function swarmsOfWs(wsId: string) {
 
 function hasActiveAgent(ws: Workspace, statuses: Record<string, AgentStatus>): boolean {
   return swarmsOfWs(ws.id).some((b) => statuses[b.id] === "running" || statuses[b.id] === "launching");
-}
-
-function activeAgentCount(ws: Workspace, statuses: Record<string, AgentStatus>): number {
-  return swarmsOfWs(ws.id).filter((b) => statuses[b.id] === "running" || statuses[b.id] === "launching").length;
 }
 
 const AGENT_COLORS = ["#c9a227", "#8fae7a", "#7f9db8", "#b79ae0", "#c66b5a", "#7fb3ab"];
@@ -155,7 +156,15 @@ function FileViewer({ target, onBack }: { target: ViewerTarget; onBack: () => vo
   }, [loading, target.line]);
 
   const name = target.path.split(/[\\/]/).pop();
-  const lines = content.split("\n");
+  const allLines = content.split("\n");
+  // Every line is its own row (needed for the jump-to-line highlight), so a
+  // 40k-line lockfile meant 40k DOM nodes and a multi-second freeze on open.
+  // The cap always keeps the jumped-to line inside the window.
+  const MAX_ROWS = 3000;
+  const capped = allLines.length > MAX_ROWS;
+  const from = capped && target.line && target.line > MAX_ROWS ? target.line - Math.floor(MAX_ROWS / 2) : 0;
+  const start = Math.max(0, Math.min(from, allLines.length - MAX_ROWS));
+  const lines = capped ? allLines.slice(start, start + MAX_ROWS) : allLines;
 
   return (
     <div className="flex h-full flex-col">
@@ -181,12 +190,17 @@ function FileViewer({ target, onBack }: { target: ViewerTarget; onBack: () => vo
           <div className="px-3 py-2 text-mini text-swarm-textMuted">Empty file</div>
         ) : (
           <pre className="py-1 font-mono text-micro leading-[1.5]">
+            {capped && (
+              <div className="mb-1 border-b border-swarm-border/30 px-2 py-1 text-swarm-textMuted/70">
+                Showing lines {start + 1}–{start + lines.length} of {allLines.length}
+              </div>
+            )}
             {lines.map((l, i) => {
-              const n = i + 1;
+              const n = start + i + 1;
               const hit = target.line === n;
               return (
                 <div
-                  key={i}
+                  key={n}
                   ref={hit ? lineRef : undefined}
                   className={`flex gap-2 px-2 ${hit ? "bg-swarm-gold/10" : ""}`}
                 >
@@ -213,53 +227,81 @@ function ExplorerPanel({
 }) {
   const [tree, setTree] = useState<FileNode[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!projectPath) return;
-    loadDir(projectPath).then(setTree).finally(() => setLoading(false));
+    // Switching projects has to reset `loading` and drop the in-flight read:
+    // without the reset the spinner never returns, and without the cancel a
+    // slow listing of the *old* folder can land last and overwrite the new tree.
+    let cancelled = false;
+    setLoading(true);
+    setTree([]);
+    setSelected(null);
+    setError(null);
+    loadDir(projectPath)
+      .then((nodes) => { if (!cancelled) { setTree(nodes); setLoading(false); } })
+      .catch((e: any) => { if (!cancelled) { setError(String(e?.message ?? e)); setLoading(false); } });
+    return () => { cancelled = true; };
   }, [projectPath]);
 
+  // Deliberately not caught here: a workspace bound to a folder that has since
+  // been moved or deleted used to render as an empty tree, which is
+  // indistinguishable from an empty folder. Callers surface the reason instead.
   async function loadDir(path: string): Promise<FileNode[]> {
-    try {
-      const files = await invoke<any[]>("list_directory", { path });
-      return files.map((f: any) => ({
-        name: f.name,
-        path: f.path,
-        is_file: f.is_file,
-        is_dir: f.is_dir,
-        children: f.is_dir ? [] : undefined,
-        expanded: false,
-      }));
-    } catch {
-      return [];
-    }
+    const files = await invoke<any[]>("list_directory", { path });
+    return files.map((f: any) => ({
+      name: f.name,
+      path: f.path,
+      is_file: f.is_file,
+      is_dir: f.is_dir,
+      children: f.is_dir ? [] : undefined,
+      expanded: false,
+    }));
   }
 
   async function toggleExpand(node: FileNode) {
     if (!node.is_dir) return;
     if (!node.expanded && (!node.children || node.children.length === 0)) {
-      const children = await loadDir(node.path);
-      node.children = children;
+      try {
+        node.children = await loadDir(node.path);
+      } catch (e: any) {
+        setError(String(e?.message ?? e));
+        return;
+      }
     }
     node.expanded = !node.expanded;
-    setTree([...tree]);
+    // Functional update: `tree` from the render closure is stale after the await
+    // above, so a fast second toggle could resurrect the pre-expansion tree.
+    setTree((t) => [...t]);
   }
 
   function renderNodes(nodes: FileNode[], level = 0) {
     return nodes.map((node) => {
       const { Icon, className } = getFileIcon(node.name);
+      const isSelected = selected === node.path;
       const activate = () => {
+        setSelected(node.path);
         if (node.is_dir) toggleExpand(node);
         else onOpen({ path: node.path });
       };
       return (
         <div key={node.path}>
           <div
-            className="group flex items-center gap-1.5 px-2 py-1 text-xs cursor-pointer rounded-md text-swarm-textDim hover:bg-swarm-gold/10 hover:text-swarm-text transition-colors"
-            style={{ paddingLeft: `${level * 12 + 8}px` }}
+            className={`group flex items-center gap-1.5 pr-2 py-1 text-xs cursor-pointer rounded-md transition-colors ${
+              isSelected
+                ? "bg-swarm-gold/[0.14] text-swarm-goldHi"
+                : "text-swarm-textDim hover:bg-swarm-gold/10 hover:text-swarm-text"
+            }`}
+            // Indent is capped: a node 20 folders deep would otherwise get zero
+            // width left for its name and the row would read as blank.
+            style={{ paddingLeft: `${Math.min(level, 8) * 12 + 8}px` }}
             onClick={activate}
             {...activatable(activate, node.name)}
             aria-expanded={node.is_dir ? node.expanded : undefined}
+            aria-current={isSelected ? "true" : undefined}
+            title={node.path}
           >
             {node.is_dir ? (
               <>
@@ -282,7 +324,11 @@ function ExplorerPanel({
             )}
             <span className="ml-0.5 truncate">{node.name}</span>
           </div>
-          {node.expanded && node.children && renderNodes(node.children, level + 1)}
+          {node.expanded && node.children && (
+            node.children.length === 0
+              ? <div className="py-1 text-micro text-swarm-textMuted/70" style={{ paddingLeft: `${Math.min(level + 1, 8) * 12 + 35}px` }}>empty</div>
+              : renderNodes(node.children, level + 1)
+          )}
         </div>
       );
     });
@@ -300,11 +346,34 @@ function ExplorerPanel({
   return (
     <div className="h-full overflow-y-auto overflow-x-hidden scrollbar-sleek">
       {loading ? (
-        <div className="px-3 py-2 text-xs text-swarm-textMuted">Loading…</div>
+        <div className="flex items-center gap-2 px-3 py-2 text-xs text-swarm-textMuted">
+          <LoaderCircle className="size-3 animate-spin" /> Loading…
+        </div>
+      ) : error && tree.length === 0 ? (
+        <div className="flex h-full flex-col items-center justify-center px-4 text-center text-swarm-textMuted">
+          <FolderOpen className="size-6 mb-2 opacity-50 text-swarm-err" />
+          <p className="text-xs font-medium text-swarm-err">Can’t read this folder</p>
+          <p className="mt-1 break-words text-micro text-swarm-textMuted/70" title={projectPath}>{error}</p>
+        </div>
       ) : tree.length === 0 ? (
-        <div className="px-3 py-2 text-xs text-swarm-textMuted">No files</div>
+        <div className="flex h-full flex-col items-center justify-center px-4 text-center text-swarm-textMuted">
+          <FolderOpen className="size-6 mb-2 opacity-50 text-swarm-gold" />
+          <p className="text-xs font-medium">This folder is empty</p>
+        </div>
       ) : (
-        <div className="py-1.5">{renderNodes(tree)}</div>
+        <div className="py-1.5">
+          {/* One unreadable subfolder must not replace the whole tree with an
+              error screen — it gets a dismissible strip instead. */}
+          {error && (
+            <div className="mx-1.5 mb-1 flex items-start gap-1.5 rounded-md border border-swarm-err/30 bg-swarm-err/10 px-2 py-1 text-micro text-swarm-err">
+              <span className="min-w-0 flex-1 break-words">{error}</span>
+              <button onClick={() => setError(null)} title="Dismiss" aria-label="Dismiss" className="shrink-0 opacity-70 hover:opacity-100">
+                <X className="size-3" />
+              </button>
+            </div>
+          )}
+          {renderNodes(tree)}
+        </div>
       )}
     </div>
   );
@@ -320,14 +389,15 @@ function SearchPanel({
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<{ path: string; line: number; text: string }[]>([]);
   const [searching, setSearching] = useState(false);
+  const [ran, setRan] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSearch = async () => {
     if (!query.trim() || !projectPath) return;
     setSearching(true);
+    setError(null);
     try {
-      const apis = { invoke, open: openDialog };
-      if (!apis.invoke) return;
-      const grep = await apis.invoke<string>("run_command", {
+      const grep = await invoke<string>("run_command", {
         command: "rg",
         args: ["--no-heading", "--line-number", query, projectPath],
       });
@@ -338,46 +408,94 @@ function SearchPanel({
           return m ? [{ path: m[1], line: parseInt(m[2], 10), text: m[3] }] : [];
         })
       );
-    } catch {
+    } catch (e: any) {
+      // rg exits non-zero on "no matches" too, so an empty result and a missing
+      // ripgrep binary used to look identical — both rendered "No results" and
+      // left the user retyping a query that could never work.
+      const msg = String(e?.message ?? e);
       setResults([]);
+      setError(/no such file|not found|ENOENT|cannot run|No such/i.test(msg) ? "ripgrep (rg) is not installed or not on PATH." : null);
     } finally {
       setSearching(false);
+      setRan(true);
     }
   };
+
+  // Results come back as absolute paths; inside a sidebar this is all prefix and
+  // no signal, so the workspace root is stripped for display only.
+  const relative = (p: string) => (projectPath && p.startsWith(projectPath) ? p.slice(projectPath.length).replace(/^[\\/]/, "") : p);
 
   return (
     <div className="h-full flex flex-col">
       <div className="p-2 border-b border-swarm-border/30">
-        <div className="flex h-7 items-center gap-1.5 rounded-md border border-swarm-border/50 glass-inset px-2 focus-within:border-swarm-gold/40">
+        <div className="flex h-7 items-center gap-1.5 rounded-md border border-swarm-border/50 glass-inset px-2 focus-within:border-swarm-gold/40 focus-within:ring-[1px] focus-within:ring-swarm-gold/20">
           <Search className="size-3 shrink-0 text-swarm-textMuted" />
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") handleSearch(); }}
-            placeholder="Search code..."
-            className="min-w-0 flex-1 bg-transparent py-1 text-mini text-swarm-text outline-none placeholder:text-swarm-textMuted/50"
+            placeholder="Search code…"
+            spellCheck={false}
+            disabled={!projectPath}
+            className="min-w-0 flex-1 bg-transparent py-1 text-mini text-swarm-text outline-none placeholder:text-swarm-textMuted/50 disabled:cursor-not-allowed"
           />
+          {query && (
+            <button
+              onClick={() => { setQuery(""); setResults([]); setRan(false); setError(null); }}
+              title="Clear search"
+              aria-label="Clear search"
+              className="flex size-4 shrink-0 items-center justify-center rounded text-swarm-textMuted hover:text-swarm-text"
+            >
+              <X className="size-3" />
+            </button>
+          )}
         </div>
+        {results.length > 0 && (
+          <div className="px-0.5 pt-1.5 text-micro text-swarm-textMuted">
+            {results.length}{results.length === 100 ? "+" : ""} match{results.length === 1 ? "" : "es"}
+          </div>
+        )}
       </div>
-      <div className="flex-1 overflow-y-auto scrollbar-sleek">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-sleek">
         {searching ? (
-          <div className="px-3 py-2 text-mini text-swarm-textMuted">Searching…</div>
+          <div className="flex items-center gap-2 px-3 py-2 text-mini text-swarm-textMuted">
+            <LoaderCircle className="size-3 animate-spin" /> Searching…
+          </div>
+        ) : !projectPath ? (
+          <div className="flex flex-col items-center justify-center h-full px-4 text-center text-swarm-textMuted">
+            <Search className="size-6 mb-2 opacity-50 text-swarm-gold" />
+            <p className="text-xs font-medium">No project open</p>
+            <p className="mt-1 text-micro text-swarm-textMuted/70">Bind a folder to search it.</p>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center h-full px-4 text-center">
+            <Search className="size-6 mb-2 opacity-50 text-swarm-err" />
+            <p className="text-xs font-medium text-swarm-err">Search unavailable</p>
+            <p className="mt-1 text-micro text-swarm-textMuted/70">{error}</p>
+          </div>
         ) : results.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full px-4 text-center text-swarm-textMuted">
             <Search className="size-6 mb-2 opacity-50 text-swarm-gold" />
-            <p className="text-xs font-medium">{query ? "No results" : "Search project code"}</p>
+            <p className="text-xs font-medium">{ran && query ? "No results" : "Search project code"}</p>
+            {!ran && <p className="mt-1 text-micro text-swarm-textMuted/70">Type a query and press Enter.</p>}
           </div>
         ) : (
           <div className="py-1">
             {results.map((r, i) => (
               <div
-                key={i}
+                key={`${r.path}:${r.line}:${i}`}
                 onClick={() => onOpen({ path: r.path, line: r.line })}
-                {...activatable(() => onOpen({ path: r.path, line: r.line }), `${r.path} line ${r.line}`)}
-                className="px-3 py-1.5 text-mini hover:bg-swarm-border/20 cursor-pointer transition-colors"
+                {...activatable(() => onOpen({ path: r.path, line: r.line }), `${relative(r.path)} line ${r.line}`)}
+                title={`${r.path}:${r.line}`}
+                className="cursor-pointer px-3 py-1.5 text-mini transition-colors hover:bg-swarm-border/20"
               >
-                <span className="text-swarm-gold truncate block">{r.path}</span>
-                <span className="text-swarm-textMuted/70">Line {r.line}: {r.text.slice(0, 80)}</span>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="min-w-0 flex-1 truncate text-swarm-gold">{relative(r.path)}</span>
+                  <span className="shrink-0 font-mono text-micro text-swarm-textMuted/70">{r.line}</span>
+                </div>
+                {/* One line, clipped by the box rather than by a magic slice()
+                    count — a hard 80-char cut chopped mid-word at every width. */}
+                <div className="truncate font-mono text-micro text-swarm-textMuted/70">{r.text.trim()}</div>
               </div>
             ))}
           </div>
@@ -403,7 +521,12 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
   const setRenamingWorkspaceId = useWorkspaceStore((s) => s.setRenamingWorkspaceId);
   const agentStatuses = useAgentsStore((s) => s.agentStatuses);
 
-  const [sidebarWidth, setSidebarWidth] = useState(280);
+  // Read once on mount: a resize the user made is theirs, and snapping back to
+  // 280px on every app start is the kind of small betrayal that reads as a bug.
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = Number(localStorage.getItem(WIDTH_KEY));
+    return Number.isFinite(saved) && saved > 0 ? clampWidth(saved) : 280;
+  });
   const [isResizing, setIsResizing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [hideSleeping, setHideSleeping] = useState(false);
@@ -422,24 +545,46 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
     const handleMouseMove = (e: MouseEvent) => {
       if (!sidebarRef.current) return;
       const rect = sidebarRef.current.getBoundingClientRect();
-      let newWidth = e.clientX - rect.left;
-      newWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth));
-      setSidebarWidth(newWidth);
+      setSidebarWidth(clampWidth(e.clientX - rect.left));
     };
     const handleMouseUp = () => setIsResizing(false);
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
+    // Pin the cursor and kill selection document-wide for the drag: otherwise
+    // the pointer flickers to a text I-beam over every label it crosses and the
+    // drag paints a selection across the whole sidebar.
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
     };
   }, [isResizing]);
 
   useEffect(() => {
+    localStorage.setItem(WIDTH_KEY, String(sidebarWidth));
+  }, [sidebarWidth]);
+
+
+  useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
+    // Not a click listener — the portal's own backdrop already handles
+    // click-away. What was missing: Escape, and dismissal on the events that
+    // strand a menu pinned to stale page coordinates (window resize, focus loss).
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
+    };
   }, [contextMenu]);
 
   const visibleWorkspaces = workspaces.filter((ws) => {
@@ -466,9 +611,22 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
     setEditValue("");
   };
 
+  // Opened at the raw cursor point, the menu ran off the window whenever the
+  // click was near the bottom or right edge — with no scroll to reach it, the
+  // Delete item was simply unclickable. Keep it fully on screen.
+  const MENU_W = 176;
+  const MENU_H = 116;
+  const openMenu = useCallback((ws: Workspace, x: number, y: number) => {
+    setContextMenu({
+      ws,
+      x: Math.max(4, Math.min(x, window.innerWidth - MENU_W - 4)),
+      y: Math.max(4, Math.min(y, window.innerHeight - MENU_H - 4)),
+    });
+  }, []);
+
   const handleContextMenu = (e: React.MouseEvent, ws: Workspace) => {
     e.preventDefault();
-    setContextMenu({ ws, x: e.clientX, y: e.clientY });
+    openMenu(ws, e.clientX, e.clientY);
   };
 
   // Not LucideIcon: the Projects tab carries Swarm's own agent mark, which
@@ -486,7 +644,10 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
     <div
       ref={sidebarRef}
       className="relative h-full flex flex-col glass-rail border-r border-swarm-border/50 shrink-0"
-      style={{ width: sidebarWidth }}
+      // maxWidth in vw, not a JS resize listener: the browser re-clamps on every
+      // window resize for free and the user's chosen width survives untouched
+      // when the window grows back.
+      style={{ width: sidebarWidth, minWidth: MIN_WIDTH, maxWidth: "50vw" }}
     >
       {/* App row — the window's top-left corner. The mark, the overflow menu
           and the panel toggles live here rather than over the pane strip,
@@ -620,8 +781,7 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
                       isActive={ws.id === activeWorkspaceId}
                       hasActive={hasActiveAgent(ws, agentStatuses)}
                       onActivate={() => { if (!ws.isDeleting) activateAndSync(ws.id); }}
-                      onMenu={(e) => setContextMenu({ ws, x: e.clientX, y: e.clientY })}
-                      onDelete={() => deleteWorkspace(ws.id)}
+                      onMenu={(e) => openMenu(ws, e.clientX, e.clientY)}
                       isRenaming={renamingWorkspaceId === ws.id}
                       editValue={editValue}
                       onEditChange={setEditValue}
@@ -630,20 +790,28 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
                       onStartRename={() => startRename(ws.id, ws.name)}
                     />
 
+                    {/* Scrim insets match the card's own mx-1.5/my-1 so it lands
+                        on the card instead of straddling its border, and the
+                        label truncates — at the 220px minimum sidebar width the
+                        pill used to push its buttons out of the rail. */}
                     {ws.isDeleting && (
-                      <div className="absolute inset-x-1 inset-y-0 z-10 flex items-center justify-center rounded-md glass backdrop-blur-[1px]">
-                        <div className="inline-flex items-center gap-2 rounded-full glass-hi border border-swarm-border/60 px-3 py-1 text-mini font-medium text-swarm-text shadow-sm">
-                          <LoaderCircle className="size-3 animate-spin text-swarm-textMuted" />
-                          <span>Queued for deletion</span>
+                      <div className="absolute inset-x-1.5 inset-y-1 z-10 flex items-center justify-center rounded-xl glass backdrop-blur-[1px]">
+                        <div className="inline-flex max-w-full items-center gap-1.5 rounded-full glass-hi border border-swarm-border/60 px-2.5 py-1 text-mini font-medium text-swarm-text shadow-sm">
+                          <LoaderCircle className="size-3 shrink-0 animate-spin text-swarm-textMuted" />
+                          <span className="truncate">Deleting…</span>
                           <button
                             onClick={(e) => { e.stopPropagation(); cancelDeleteWorkspace(ws.id); }}
-                            className="ml-1 text-swarm-textMuted hover:text-swarm-text transition-colors"
+                            title="Cancel deletion"
+                            aria-label="Cancel deletion"
+                            className="shrink-0 text-swarm-textMuted hover:text-swarm-text transition-colors"
                           >
                             <X className="size-3" />
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); commitDeleteWorkspace(ws.id); }}
-                            className="text-swarm-err hover:text-red-300 transition-colors font-semibold"
+                            // was hover:text-red-300 — a raw Tailwind colour that
+                            // stays the same red in all eight themes.
+                            className="shrink-0 font-semibold text-swarm-err/85 transition-colors hover:text-swarm-err"
                           >
                             Confirm
                           </button>
@@ -696,12 +864,18 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
         document.body,
       )}
 
-      {/* Resize handle */}
+      {/* Resize handle. It only overhangs the neighbour by 4px (was 8): the grab
+          strip sits on top of whatever pane is next door, and a terminal that
+          swallows clicks along its whole left edge feels broken, not draggable. */}
       <div
-        className="absolute -right-2 top-0 z-40 flex h-full w-4 cursor-col-resize items-stretch justify-center group select-none"
+        className="absolute -right-1 top-0 z-40 flex h-full w-3 cursor-col-resize items-stretch justify-center group select-none"
         onMouseDown={handleResizeStart}
+        onDoubleClick={() => setSidebarWidth(280)}
+        role="separator"
+        aria-orientation="vertical"
+        title="Drag to resize · double-click to reset"
       >
-        <div className="h-full w-px bg-swarm-border/40 transition-colors group-hover:bg-swarm-gold/60 group-active:bg-swarm-gold" />
+        <div className={`h-full w-px transition-colors group-hover:bg-swarm-gold/60 ${isResizing ? "bg-swarm-gold" : "bg-swarm-border/40"}`} />
       </div>
 
       <WorkspaceCreateDialog
@@ -714,7 +888,7 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
 
 /* ── swarm project group: collapsible header + tree rows ───── */
 function ProjectGroup({
-  ws, isActive, hasActive, onActivate, onMenu, onDelete,
+  ws, isActive, hasActive, onActivate, onMenu,
   isRenaming, editValue, onEditChange, onCommitRename, onCancelRename, onStartRename,
 }: {
   ws: Workspace;
@@ -722,7 +896,6 @@ function ProjectGroup({
   hasActive: boolean;
   onActivate: () => void;
   onMenu: (e: React.MouseEvent) => void;
-  onDelete: () => void;
   isRenaming: boolean;
   editValue: string;
   onEditChange: (v: string) => void;
@@ -733,7 +906,6 @@ function ProjectGroup({
   const createWorktree = useWorkspaceStore((s) => s.createWorktree);
   const removeWorktree = useWorkspaceStore((s) => s.removeWorktree);
   const mergeWorktree = useWorkspaceStore((s) => s.mergeWorktree);
-  const updateWorkspace = useWorkspaceStore((s) => s.updateWorkspace);
   const activateAndSync = useWorkspaceStore((s) => s.activateWorkspaceAndSync);
 
   const [collapsed, setCollapsed] = useState(false);
@@ -772,6 +944,10 @@ function ProjectGroup({
     finally { setBusy(false); }
   };
   const remove = async (id: string) => {
+    // Removing a worktree deletes its checkout — uncommitted work in it is gone.
+    // The button is a 20px icon one pixel from Merge, so it gets a confirm.
+    const tree = trees.find((t) => t.id === id);
+    if (!confirm(`Remove tree "${tree?.name ?? id}"? Uncommitted changes in it will be lost.`)) return;
     setPendingId(id); setError(null);
     try { await removeWorktree(ws.id, id); }
     catch (e: any) { setError(String(e?.message ?? e)); }
@@ -799,7 +975,7 @@ function ProjectGroup({
       <div
         className="group flex cursor-pointer items-center gap-1 px-2 py-1.5"
         onClick={() => { if (!isRenaming) onActivate(); }}
-        {...activatable(() => { if (!isRenaming) onActivate(); }, `Agent ${ws.name}`)}
+        {...activatable(() => { if (!isRenaming) onActivate(); }, `Workspace ${ws.name}`)}
         aria-current={isActive ? "true" : undefined}
       >
         <button
@@ -823,14 +999,19 @@ function ProjectGroup({
           <span
             className="min-w-0 flex-1 truncate text-sm font-semibold text-swarm-text"
             onDoubleClick={onStartRename}
-            title={ws.boundProjectPath || ws.name}
+            // Both name and path are unbounded user data and both get truncated,
+            // so the tooltip has to carry both — the path alone left an
+            // ellipsised name with no way to read it.
+            title={`${ws.name}${ws.boundProjectPath ? `\n${ws.boundProjectPath}` : "\nNo folder bound"}`}
           >
             {ws.name}
           </span>
         )}
 
-        <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={(e) => { e.stopPropagation(); onMenu(e); }} className="flex size-6 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-border/40 hover:text-swarm-text" title="Project menu">
+        {/* focus-within keeps these reachable when tabbing: hover-gated row
+            actions are invisible and unusable without a pointer. */}
+        <div className="flex items-center gap-0.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <button onClick={(e) => { e.stopPropagation(); onMenu(e); }} className="flex size-6 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-border/40 hover:text-swarm-text" title="Project menu" aria-label={`Menu for ${ws.name}`}>
             <MoreHorizontal className="size-3.5" />
           </button>
           <button
@@ -918,14 +1099,16 @@ function TreeRow({
     >
       <div className="flex items-center gap-2">
         <span className={`size-2 shrink-0 rounded-full ${dot}`} />
-        <span className={`truncate text-sm font-medium ${active ? "text-swarm-goldHi" : "text-swarm-text"}`}>{name}</span>
+        <span className={`min-w-0 truncate text-sm font-medium ${active ? "text-swarm-goldHi" : "text-swarm-text"}`} title={name}>{name}</span>
         {badge && (
           <span className="shrink-0 rounded-sm border border-swarm-border/60 bg-swarm-border/20 px-1.5 py-0 text-micro font-medium text-swarm-textDim">
             {badge}
           </span>
         )}
+        {/* focus-within: the merge/remove pair was hover-only, so neither was
+            reachable from the keyboard at all. */}
         {(onMerge || onRemove) && (
-          <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100">
+          <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
             {pending ? (
               <LoaderCircle className="size-3 animate-spin text-swarm-textMuted" />
             ) : (
@@ -935,6 +1118,7 @@ function TreeRow({
                     onClick={(e) => { e.stopPropagation(); onMerge(); }}
                     className="flex size-5 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-gold/15 hover:text-swarm-goldHi"
                     title="Merge branch into main + remove tree"
+                    aria-label={`Merge ${name} into main`}
                   >
                     <GitMerge className="size-3" />
                   </button>
@@ -944,6 +1128,7 @@ function TreeRow({
                     onClick={(e) => { e.stopPropagation(); onRemove(); }}
                     className="flex size-5 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-err/15 hover:text-swarm-err"
                     title="Remove tree (discard)"
+                    aria-label={`Remove tree ${name}`}
                   >
                     <Trash2 className="size-3" />
                   </button>
@@ -953,9 +1138,9 @@ function TreeRow({
           </div>
         )}
       </div>
-      <div className="mt-0.5 flex items-center gap-1 pl-4 text-mini text-swarm-textMuted">
+      <div className="mt-0.5 flex min-w-0 items-center gap-1 pl-4 text-mini text-swarm-textMuted">
         <GitBranch className="size-2.5 shrink-0" />
-        <span className="truncate">{branch}</span>
+        <span className="truncate" title={branch}>{branch}</span>
       </div>
     </div>
   );

@@ -91,6 +91,9 @@ export default function CanvasNode({ id, box, zoom, children }: Props) {
         left: shown.x, top: shown.y, width: shown.w, height: shown.h, zIndex: box.z,
         // Snapping during a drag would make the node stutter; snap on drop.
         transition: dragging ? "none" : "box-shadow 0.2s ease",
+        // Same reason as the viewport: without it a pen/touch drag on the title
+        // bar is stolen by the browser's scroll gesture partway through.
+        touchAction: "none",
       }}
       onPointerDown={startDrag}
       onPointerMove={onMove}
@@ -100,7 +103,10 @@ export default function CanvasNode({ id, box, zoom, children }: Props) {
     >
       <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
 
-      {/* Resize grip. Sized in screen pixels so it stays grabbable when zoomed out. */}
+      {/* Resize grip. Sized in screen pixels so it stays grabbable when zoomed
+          out. The padding pulls the chevron clear of the frame's rounded
+          corner, which was slicing the ends off both strokes; the hit area
+          keeps the full square. */}
       <div
         onPointerDown={startResize}
         onPointerMove={onMove}
@@ -108,7 +114,7 @@ export default function CanvasNode({ id, box, zoom, children }: Props) {
         onPointerCancel={commit}
         title="Resize"
         className="absolute bottom-0 right-0 cursor-nwse-resize"
-        style={{ width: 16 / zoom, height: 16 / zoom }}
+        style={{ width: 20 / zoom, height: 20 / zoom, padding: 4 / zoom, boxSizing: "border-box", touchAction: "none" }}
       >
         <svg viewBox="0 0 16 16" className="size-full text-swarm-textMuted/70">
           <path d="M15 6 6 15M15 11l-4 4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />

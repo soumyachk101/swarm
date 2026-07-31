@@ -1,18 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import {
-  MessageSquare,
-  GitBranch,
-  X,
-  Pin,
-  PinOff,
-  Plus,
-  Minus,
-  Check,
-  Maximize2,
-  Minimize2,
-} from "lucide-react";
+import { MessageSquare, GitBranch, X, Plus, Minus, Check } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { LeadPanel, LeadModeSelect } from "@swarm/lead/ui";
 import { LeadCrown } from "@swarm/board";
@@ -25,12 +14,7 @@ type DockTab = "chat" | "glasschat" | "git";
 
 interface Props {
   projectPath: string | null;
-  activeWorkspaceId?: string;
-  pinned?: boolean;
-  onTogglePin?: () => void;
   onClose: () => void;
-  onOpenSettings?: () => void;
-  onOpenProject?: () => void;
 }
 
 interface ViewerTarget {
@@ -63,7 +47,10 @@ function FileViewer({ target, onBack }: { target: ViewerTarget; onBack: () => vo
         const text = target.diff && target.projectPath
           ? await invoke<string>("run_command", {
               command: "git",
-              args: ["-C", target.projectPath, "diff", "--", target.path],
+              // Against HEAD, not the index: plain `git diff` is empty for a
+              // staged file, so clicking anything under "Staged" claimed the
+              // file was unchanged.
+              args: ["-C", target.projectPath, "diff", "HEAD", "--", target.path],
             })
           : await invoke<string>("read_file", { path: target.path });
         if (!cancelled) setContent(text);
@@ -175,6 +162,9 @@ function GitPanel({
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // "No changes" before the first git call has answered is a lie that reads as
+  // a broken panel on a big repo, where the status takes a beat.
+  const [loaded, setLoaded] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!projectPath) return;
@@ -186,11 +176,14 @@ function GitPanel({
         args: ["-C", projectPath, "status", "--porcelain"],
       });
       setEntries(parsePorcelain(raw));
-    } catch {}
+    } catch {} finally {
+      setLoaded(true);
+    }
   }, [projectPath]);
 
   useEffect(() => {
     if (!projectPath) return;
+    setLoaded(false);
     refresh();
     const interval = setInterval(refresh, 5000);
     return () => clearInterval(interval);
@@ -232,7 +225,10 @@ function GitPanel({
       <div className="group flex items-center gap-1.5 px-2 py-1 text-mini transition-colors hover:bg-swarm-border/20">
         <span className={`w-3 shrink-0 font-mono text-micro ${color}`}>{code}</span>
         <span
-          onClick={() => onOpen({ path: `${projectPath}/${e.file}`, diff: !e.file.startsWith("??"), projectPath })}
+          // The status codes live in e.index/e.work, never in e.file, so the
+          // old `e.file.startsWith("??")` test was always false and untracked
+          // files opened as an empty diff instead of showing their contents.
+          onClick={() => onOpen({ path: `${projectPath}/${e.file}`, diff: e.index !== "?", projectPath })}
           className="flex-1 cursor-pointer truncate text-swarm-textDim hover:text-swarm-text"
           title={e.file}
         >
@@ -286,7 +282,9 @@ function GitPanel({
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-sleek py-1">
-        {entries.length === 0 ? (
+        {!loaded ? (
+          <div className="px-3 py-2 text-mini text-swarm-textMuted">Loading…</div>
+        ) : entries.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center px-4 text-center text-swarm-textMuted">
             <GitBranch className="mb-2 size-6 opacity-50 text-swarm-gold" />
             <p className="text-xs font-medium">No changes</p>
@@ -325,16 +323,10 @@ const TABS: { id: DockTab; label: string; icon: React.ComponentType<{ className?
 
 const RIGHT_DOCK_MIN = 260;
 const RIGHT_DOCK_MAX = 520;
+const WIDTH_KEY = "swarm_right_dock_width";
+const clampWidth = (w: number) => Math.max(RIGHT_DOCK_MIN, Math.min(RIGHT_DOCK_MAX, w));
 
-export default function ADERightDock({
-  projectPath,
-  activeWorkspaceId,
-  pinned = true,
-  onTogglePin,
-  onClose,
-  onOpenSettings,
-  onOpenProject,
-}: Props) {
+export default function ADERightDock({ projectPath, onClose }: Props) {
   const [activeTab, setActiveTab] = useState<DockTab>("chat");
   // A fresh promotion should show the new Lead, not whatever tab was open.
   const leadId = useAgentsStore((s) => s.agents.find((b) => b.isLead)?.id ?? null);
@@ -342,32 +334,56 @@ export default function ADERightDock({
     if (leadId) setActiveTab("chat");
   }, [leadId]);
   const [viewer, setViewer] = useState<ViewerTarget | null>(null);
-  const [dockWidth, setDockWidth] = useState(340);
+  // Switching projects leaves the viewer pointing at a file from the old one,
+  // which then renders someone else's diff under the new project's branch.
+  useEffect(() => setViewer(null), [projectPath]);
+  // Restore the last width: re-dragging the panel back to size on every launch
+  // is the kind of small tax that makes the shell feel unfinished.
+  const [dockWidth, setDockWidth] = useState(() => {
+    const saved = Number(localStorage.getItem(WIDTH_KEY));
+    return saved > 0 ? clampWidth(saved) : 340;
+  });
   const compact = dockWidth < 380;
   const [isResizing, setIsResizing] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const dockRef = useRef<HTMLDivElement>(null);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+  const handleResizeStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
+    // Capture the pointer on the handle. Without it, a drag that crosses the
+    // GlassChat iframe or a terminal canvas stops delivering move events and
+    // the panel sticks at whatever width the pointer was over when it left.
+    e.currentTarget.setPointerCapture(e.pointerId);
     setIsResizing(true);
   }, []);
 
   useEffect(() => {
     if (!isResizing) return;
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleMove = (e: PointerEvent) => {
       if (!dockRef.current) return;
       const rect = dockRef.current.getBoundingClientRect();
-      let newWidth = rect.right - e.clientX;
-      newWidth = Math.max(RIGHT_DOCK_MIN, Math.min(RIGHT_DOCK_MAX, newWidth));
-      setDockWidth(newWidth);
+      setDockWidth(clampWidth(rect.right - e.clientX));
     };
-    const handleMouseUp = () => setIsResizing(false);
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
+    const handleUp = () => {
+      setIsResizing(false);
+      // Persist once the drag settles: a localStorage write per pointermove is
+      // a synchronous disk hit ~60×/s and it stutters the drag.
+      const w = dockRef.current?.getBoundingClientRect().width;
+      if (w) localStorage.setItem(WIDTH_KEY, String(Math.round(w)));
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    // A cancelled pointer (window blur, gesture stolen) never sends pointerup;
+    // without this the dock stays in resize mode after the mouse is released.
+    window.addEventListener("pointercancel", handleUp);
+    // Hold the cursor for the whole drag — once the pointer leaves the handle
+    // it otherwise flickers to whatever text or terminal is underneath.
+    document.body.style.cursor = "col-resize";
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
+      document.body.style.cursor = "";
     };
   }, [isResizing]);
 
@@ -379,7 +395,9 @@ export default function ADERightDock({
           ? "fixed inset-0 z-[140] flex flex-col glass-hi shadow-2xl animate-fade-in p-2"
           : "relative h-full flex flex-col glass-rail border-l border-swarm-border/50"
       }
-      style={isExpanded ? {} : { width: dockWidth, minWidth: RIGHT_DOCK_MIN, maxWidth: RIGHT_DOCK_MAX }}
+      // min(…, 45vw) so a half-screen laptop window can't end up with a 520px
+      // dock and a sliver of board next to it; the min-width is still the floor.
+      style={isExpanded ? {} : { width: `min(${dockWidth}px, 45vw)`, minWidth: RIGHT_DOCK_MIN }}
     >
       {/* Dock header with sub-tabs */}
       <div className="flex items-center border-b border-swarm-border/40 shrink-0">
@@ -389,12 +407,22 @@ export default function ADERightDock({
           return (
             <button
               key={tab.id}
-              onClick={() => { setActiveTab(tab.id); setViewer(null); }}
+              onClick={() => {
+                setActiveTab(tab.id);
+                setViewer(null);
+                // Only GlassChat has an expand control. Leaving isExpanded on
+                // while switching away pinned Lead or Git fullscreen with no
+                // way back out.
+                if (tab.id !== "glasschat") setIsExpanded(false);
+              }}
               title={tab.label}
-              className={`flex items-center justify-center gap-1.5 flex-1 min-w-0 h-9 px-2 text-mini font-medium transition-colors whitespace-nowrap ${
+              // Inactive tabs carry a transparent bottom border of the same
+              // width: without it the active tab's 2px border eats into the
+              // fixed h-9 box and the icon jumps a pixel as you switch tabs.
+              className={`flex items-center justify-center gap-1.5 flex-1 min-w-0 h-9 px-2 text-mini font-medium border-b-2 transition-colors whitespace-nowrap ${
                 active
-                  ? "text-swarm-goldHi bg-swarm-gold/[0.06] border-b-2 border-swarm-gold"
-                  : "text-swarm-textMuted hover:text-swarm-textDim hover:bg-swarm-border/20"
+                  ? "text-swarm-goldHi bg-swarm-gold/[0.06] border-swarm-gold"
+                  : "border-transparent text-swarm-textMuted hover:text-swarm-textDim hover:bg-swarm-border/20"
               }`}
             >
               <Icon className="size-3.5 shrink-0" />
@@ -409,15 +437,6 @@ export default function ADERightDock({
           </div>
         )}
         <button
-          onClick={onTogglePin}
-          className={`size-8 flex items-center justify-center transition-colors shrink-0 ${
-            pinned ? "text-swarm-goldHi/70" : "text-swarm-textMuted hover:text-swarm-textDim"
-          }`}
-          title={pinned ? "Unpin panel" : "Pin panel"}
-        >
-          {pinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
-        </button>
-        <button
           onClick={onClose}
           className="size-8 flex items-center justify-center text-swarm-textMuted hover:text-swarm-text hover:bg-swarm-border/30 transition-colors shrink-0"
           title="Close panel"
@@ -430,7 +449,7 @@ export default function ADERightDock({
       {!isExpanded && (
         <div
           className="absolute -left-2 top-0 z-40 flex h-full w-4 cursor-col-resize items-stretch justify-center group select-none"
-          onMouseDown={handleResizeStart}
+          onPointerDown={handleResizeStart}
           title="Drag to resize panel"
         >
           <div className={`h-full w-0.5 transition-colors ${isResizing ? "bg-swarm-gold" : "bg-swarm-border/60 group-hover:bg-swarm-gold/80"}`} />

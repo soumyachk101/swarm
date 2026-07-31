@@ -198,6 +198,12 @@ export default function CliUsagePanel({ onClose }: { onClose?: () => void }) {
 
       <div className="max-h-[62vh] divide-y divide-swarm-border/30 overflow-y-auto scrollbar-sleek">
         {error && <p className="px-4 py-3 text-mini text-swarm-err">{error}</p>}
+        {/* The first scan walks every transcript on disk and can take a second.
+            Without this the panel opened as an empty box under a header and
+            read as broken rather than busy. */}
+        {!error && rows.length === 0 && loading && (
+          <p className="px-4 py-3 text-mini text-swarm-textMuted">Reading transcripts…</p>
+        )}
         {!error && rows.length === 0 && !loading && (
           <p className="px-4 py-3 text-mini text-swarm-textMuted">
             No tracked CLI found on this machine.
@@ -217,15 +223,19 @@ export default function CliUsagePanel({ onClose }: { onClose?: () => void }) {
                 <div className={`flex size-8 shrink-0 items-center justify-center rounded-lg text-swarm-textDim ${tile.bg}`}>
                   {brand ? <BrandGlyph brand={brand} size={17} /> : <AgentMark size={17} />}
                 </div>
-                <span className="text-lg font-bold text-swarm-text">{name}</span>
+                {/* The name comes from the CLI's own metadata, so it is not
+                    length-bounded. Unclamped it pushed the plan chip and the
+                    budget button off the 360px panel. */}
+                <span className="min-w-0 truncate text-lg font-bold text-swarm-text" title={name}>{name}</span>
                 {r.plan && (
-                  <span className="rounded-full border border-swarm-gold/25 bg-swarm-gold/10 px-1.5 py-px text-micro font-semibold uppercase tracking-wide text-swarm-goldHi">
+                  <span className="shrink-0 rounded-full border border-swarm-gold/25 bg-swarm-gold/10 px-1.5 py-px text-micro font-semibold uppercase tracking-wide text-swarm-goldHi">
                     {r.plan}
                   </span>
                 )}
                 <button
                   onClick={() => setEditing(editing === r.cli ? null : r.cli)}
-                  className="ml-auto text-micro text-swarm-textMuted transition-colors hover:text-swarm-gold"
+                  aria-expanded={editing === r.cli}
+                  className="ml-auto shrink-0 text-micro text-swarm-textMuted transition-colors hover:text-swarm-gold"
                   title="Set your plan's allowance to see % left"
                 >
                   budget

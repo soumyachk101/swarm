@@ -28,7 +28,10 @@ export default function EmulatorPane({ onClose, onToggleMaximize, isMaximized }:
   return (
     <div className="flex h-full flex-col overflow-hidden glass-body">
       {/* Neutral chrome — class identity is the leading accent dot only. */}
-      <div data-pane-drag data-pane-header="true" className={`${PANE_HEADER_CLASS} h-6 gap-1 px-1.5`}>
+      {/* No `h-6` override: it loses to PANE_HEADER_CLASS's own h-8 on Tailwind's
+          class ordering, so it only ever looked like an intention. Matching the
+          other panes' header height is the right answer anyway. */}
+      <div data-pane-drag data-pane-header="true" className={`${PANE_HEADER_CLASS} gap-1 px-1.5`}>
         <span
           className="size-1.5 shrink-0 rounded-full"
           style={{ background: themeForKind("emulator").accent }}
@@ -53,14 +56,16 @@ export default function EmulatorPane({ onClose, onToggleMaximize, isMaximized }:
             className="rounded p-0.5 text-swarm-textMuted transition-colors hover:bg-swarm-border/50 hover:text-swarm-text"
             title={isMaximized ? "Restore" : "Maximize"}
           >
-            {isMaximized ? <Minimize2 className="size-2.5" /> : <Maximize2 className="size-2.5" />}
+            {/* size-3 across every pane's window controls; 10px here made this
+                one look like a different app's chrome. */}
+            {isMaximized ? <Minimize2 className="size-3" /> : <Maximize2 className="size-3" />}
           </button>
           <button
             onClick={onClose}
             className="rounded p-0.5 text-swarm-textMuted transition-colors hover:bg-swarm-err/70 hover:text-white"
             title="Close"
           >
-            <X className="size-2.5" />
+            <X className="size-3" />
           </button>
         </div>
       </div>

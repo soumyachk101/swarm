@@ -38,6 +38,9 @@ export default function WorkspaceTrees({ agent }: { agent: Workspace }) {
   };
 
   const remove = async (id: string) => {
+    // Removing a worktree deletes its checkout; uncommitted work in it is gone.
+    const tree = trees.find((t) => t.id === id);
+    if (!confirm(`Remove tree "${tree?.name ?? id}"? Uncommitted changes in it will be lost.`)) return;
     setRemovingId(id);
     setError(null);
     try {
@@ -94,13 +97,18 @@ export default function WorkspaceTrees({ agent }: { agent: Workspace }) {
           {trees.map((t) => (
             <div key={t.id} className="group flex items-center gap-1.5 rounded px-1.5 py-1 text-mini text-swarm-textDim hover:bg-swarm-border/20">
               <GitBranch className="size-3 shrink-0 text-swarm-gold" />
-              <span className="truncate font-medium text-swarm-text" title={t.path}>{t.name}</span>
-              <span className="truncate text-micro text-swarm-textMuted/70">{t.branch}</span>
+              {/* Both name and branch are unbounded and both truncate, so each
+                  carries its own tooltip — a clipped row was unreadable. */}
+              <span className="min-w-0 truncate font-medium text-swarm-text" title={`${t.name}\n${t.path}`}>{t.name}</span>
+              <span className="min-w-0 truncate text-micro text-swarm-textMuted/70" title={t.branch}>{t.branch}</span>
               <button
                 onClick={(e) => { e.stopPropagation(); remove(t.id); }}
                 disabled={removingId === t.id}
-                className="ml-auto size-5 shrink-0 rounded flex items-center justify-center text-swarm-textMuted opacity-0 group-hover:opacity-100 hover:text-swarm-err hover:bg-swarm-err/15 transition-all"
+                // focus-visible: a hover-only destructive control can't be reached
+                // by keyboard at all.
+                className="ml-auto size-5 shrink-0 rounded flex items-center justify-center text-swarm-textMuted opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-swarm-err hover:bg-swarm-err/15 transition-all"
                 title="Remove tree"
+                aria-label={`Remove tree ${t.name}`}
               >
                 {removingId === t.id ? <LoaderCircle className="size-3 animate-spin" /> : <Trash2 className="size-3" />}
               </button>

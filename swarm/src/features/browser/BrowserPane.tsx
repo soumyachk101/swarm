@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import {
-  ArrowLeft, ArrowRight, RotateCw, Camera, X, Maximize2, Minimize2, Globe,
+  ArrowLeft, ArrowRight, RotateCw, Camera, X, Maximize2, Minimize2, Globe, Loader2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { CdpClient, normalizeUrl } from "@/features/browser/cdp";
@@ -30,6 +30,7 @@ export default function BrowserPane({
   const [urlInput, setUrlInput] = useState(initialUrl === "about:blank" ? "" : initialUrl);
   const [frame, setFrame] = useState<string | null>(null);
   const [status, setStatus] = useState<"booting" | "ready" | "error">("booting");
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shotFlash, setShotFlash] = useState(false);
   // Bumped by Retry to re-run the boot effect.
@@ -44,6 +45,31 @@ export default function BrowserPane({
   // Mirrors urlInput so callbacks registered once don't read a stale URL.
   const urlRef = useRef(initialUrl);
   useEffect(() => { urlRef.current = urlInput; }, [urlInput]);
+
+  /**
+   * The emulated viewport in CSS pixels. Frames come back at this size times the
+   * device scale factor, so pointer coordinates have to be scaled against *this*
+   * and not against the image's own pixel dimensions — otherwise every click on
+   * a HiDPI display lands at twice the intended offset.
+   */
+  const metricsRef = useRef({ width: 1280, height: 800 });
+
+  /** Match the emulated viewport to the pane, at the display's real pixel ratio. */
+  const applyMetrics = useCallback(async (c: CdpClient, s: string) => {
+    const r = viewRef.current?.getBoundingClientRect();
+    const width = Math.max(320, Math.round(r?.width ?? 1280));
+    const height = Math.max(240, Math.round(r?.height ?? 800));
+    metricsRef.current = { width, height };
+    await c.send("Emulation.setDeviceMetricsOverride", {
+      width,
+      height,
+      // A hardcoded 1 captured the page as a 1:1 CSS-pixel bitmap that the
+      // browser then upscaled to fill a Retina pane — text in the preview came
+      // out visibly soft next to every other pane on the board.
+      deviceScaleFactor: window.devicePixelRatio || 1,
+      mobile: false,
+    }, s);
+  }, []);
 
   const setScreenshot = useBrowserStore((s) => s.setScreenshot);
   const clearScreenshot = useBrowserStore((s) => s.clearScreenshot);
@@ -89,14 +115,13 @@ export default function BrowserPane({
           if (p.frame?.parentId) return; // only the main frame
           if (p.frame?.url && p.frame.url !== "about:blank") setUrlInput(p.frame.url);
         });
+        // A dev server that is slow (or not listening at all) leaves the last
+        // frame frozen on screen with nothing to say whether the click did
+        // anything. These two turn that dead air into a spinner in the URL bar.
+        client.on("Page.frameStartedLoading", () => setLoading(true));
+        client.on("Page.frameStoppedLoading", () => setLoading(false));
 
-        const rect = viewRef.current?.getBoundingClientRect();
-        await client.send("Emulation.setDeviceMetricsOverride", {
-          width: Math.max(320, Math.round(rect?.width ?? 1280)),
-          height: Math.max(240, Math.round(rect?.height ?? 800)),
-          deviceScaleFactor: 1,
-          mobile: false,
-        }, sessionId);
+        await applyMetrics(client, sessionId);
 
         await client.send("Page.startScreencast", {
           format: "jpeg", quality: 65, everyNthFrame: 1,
@@ -137,26 +162,26 @@ export default function BrowserPane({
         }
       })();
     };
-  }, [paneId, initialUrl, clearScreenshot, bootNonce]);
+  }, [paneId, initialUrl, clearScreenshot, bootNonce, applyMetrics]);
 
   /* ── Keep the emulated viewport matched to the pane size ────────── */
   useEffect(() => {
     if (status !== "ready" || !viewRef.current) return;
     const el = viewRef.current;
+    let t: ReturnType<typeof setTimeout>;
+    // Debounced: dragging a pane divider fires the observer every frame, and
+    // each override forces the page through a full relayout. Unthrottled that
+    // stalled the screencast into a slideshow for the length of the drag.
     const ro = new ResizeObserver(() => {
-      const c = clientRef.current, s = sessionRef.current;
-      if (!c || !s) return;
-      const r = el.getBoundingClientRect();
-      c.send("Emulation.setDeviceMetricsOverride", {
-        width: Math.max(320, Math.round(r.width)),
-        height: Math.max(240, Math.round(r.height)),
-        deviceScaleFactor: 1,
-        mobile: false,
-      }, s).catch(() => {});
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const c = clientRef.current, s = sessionRef.current;
+        if (c && s) applyMetrics(c, s).catch(() => {});
+      }, 120);
     });
     ro.observe(el);
-    return () => ro.disconnect();
-  }, [status]);
+    return () => { clearTimeout(t); ro.disconnect(); };
+  }, [status, applyMetrics]);
 
   const cmd = useCallback(async (method: string, params: object = {}) => {
     const c = clientRef.current, s = sessionRef.current;
@@ -183,11 +208,14 @@ export default function BrowserPane({
      from the *rendered* image box instead. */
   const toPageCoords = (e: { clientX: number; clientY: number }, img: HTMLImageElement) => {
     const r = img.getBoundingClientRect();
-    const nw = img.naturalWidth, nh = img.naturalHeight;
-    if (!r.width || !r.height || !nw || !nh) return null;
-    const scale = Math.min(r.width / nw, r.height / nh);
-    const offX = r.left + (r.width - nw * scale) / 2;
-    const offY = r.top + (r.height - nh * scale) / 2;
+    // Against the emulated viewport, not img.naturalWidth: the frame is captured
+    // at devicePixelRatio, so natural dimensions are a multiple of the page's own
+    // CSS pixels and CDP only ever accepts the latter.
+    const { width: vw, height: vh } = metricsRef.current;
+    if (!r.width || !r.height || !vw || !vh) return null;
+    const scale = Math.min(r.width / vw, r.height / vh);
+    const offX = r.left + (r.width - vw * scale) / 2;
+    const offY = r.top + (r.height - vh * scale) / 2;
     return {
       x: Math.round((e.clientX - offX) / scale),
       y: Math.round((e.clientY - offY) / scale),
@@ -293,14 +321,23 @@ export default function BrowserPane({
           <RotateCw className="size-3" />
         </button>
 
-        <input
-          value={urlInput}
-          onChange={(e) => setUrlInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") navigate(urlInput); }}
-          placeholder="3000 · localhost:5173 · /dashboard"
-          spellCheck={false}
-          className="mx-1 min-w-0 flex-1 rounded-md border border-swarm-border/50 glass-inset px-2 py-0.5 text-mini text-swarm-text outline-none transition-colors placeholder:text-swarm-textMuted/50 focus:border-swarm-gold/40"
-        />
+        <div className="relative mx-1 flex min-w-0 flex-1 items-center">
+          <input
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") navigate(urlInput); }}
+            // The bar doubles as the address display, so a click should select
+            // the lot — otherwise replacing a long URL means dragging over it.
+            onFocus={(e) => e.currentTarget.select()}
+            placeholder="3000 · localhost:5173 · /dashboard"
+            spellCheck={false}
+            aria-label="Address"
+            className="min-w-0 flex-1 rounded-md border border-swarm-border/50 glass-inset py-0.5 pl-2 pr-6 text-mini text-swarm-text outline-none transition-colors placeholder:text-swarm-textMuted/50 focus:border-swarm-gold/40"
+          />
+          {loading && (
+            <Loader2 className="pointer-events-none absolute right-1.5 size-3 animate-spin text-swarm-gold" />
+          )}
+        </div>
 
         <button
           onClick={screenshot}
@@ -378,15 +415,25 @@ export default function BrowserPane({
                 modifiers: cdpModifiers(e),
               });
             }}
-            className="h-full w-full select-none object-contain outline-none"
+            // The frame takes keyboard focus so the page can receive keys, and
+            // outline-none alone left that state completely invisible.
+            className="h-full w-full select-none object-contain outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-swarm-gold/60"
           />
         )}
         {status === "ready" && !frame && (
-          <div className="flex h-full items-center justify-center text-mini text-swarm-textMuted">
-            Enter a URL to start
+          <div className="flex h-full flex-col items-center justify-center gap-1.5 px-6 text-center">
+            <Globe className="size-5 text-swarm-textMuted/40" />
+            <p className="text-mini text-swarm-textDim">Enter a URL to start</p>
+            {/* The overwhelmingly common case is a dev server that isn't up yet,
+                and a bare "Enter a URL" reads as if the pane itself failed. */}
+            <p className="max-w-[300px] text-micro leading-[1.5] text-swarm-textMuted">
+              Type a port like <span className="text-swarm-gold">3000</span> — the pane
+              resolves it to localhost. Start your dev server first, or the page
+              will come back refused.
+            </p>
           </div>
         )}
-        {shotFlash && <div className="pointer-events-none absolute inset-0 bg-white/70 transition-opacity" />}
+        {shotFlash && <div className="pointer-events-none absolute inset-0 bg-white/70" />}
       </div>
     </div>
   );

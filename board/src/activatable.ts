@@ -9,15 +9,20 @@ import type { KeyboardEvent } from "react";
  * Spread it next to onClick, don't replace it:
  *   <div onClick={activate} {...activatable(activate)}>
  */
+const NESTED_CONTROLS = new Set(["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A"]);
+
 export function activatable(onActivate: () => void, label?: string) {
   return {
     role: "button",
     tabIndex: 0,
     "aria-label": label,
     onKeyDown: (e: KeyboardEvent) => {
-      // Ignore keys typed into a nested input, and Space inside a text field.
+      // Ignore keys aimed at a nested control. Inputs so Space stays a space;
+      // buttons/links because the whole reason this helper exists is that these
+      // rows nest their own — Enter on a row's close button would otherwise
+      // both close the row AND activate it on the way up.
       const t = e.target as HTMLElement;
-      if (t !== e.currentTarget && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      if (t !== e.currentTarget && NESTED_CONTROLS.has(t.tagName)) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault(); // Space would scroll the container otherwise.
         onActivate();

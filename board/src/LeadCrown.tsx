@@ -1,7 +1,7 @@
 /**
  * The Lead mark. Not a crown: crowns are everywhere and say "premium",
  * not "this agent leads the swarm". This is the lead herself, sharing the
- * Agent silhouette exactly so promoting a worker reads as the same
+ * AgentMark silhouette exactly so promoting a worker reads as the same
  * creature elevated, with two things only she has: a royal arc fused above
  * the wings, and the royal-cell diamond on her thorax.
  *

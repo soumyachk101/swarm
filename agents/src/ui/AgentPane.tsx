@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal as XTerm, ITerminalOptions } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import { SearchAddon } from "xterm-addon-search";
+import { WebglAddon } from "xterm-addon-webgl";
 import {
   Copy,
   Trash2,
@@ -12,10 +13,9 @@ import {
   Minimize2,
   Loader2,
   AlertTriangle,
-  Download,
   ExternalLink,
-  Terminal,
   Check,
+  MoreHorizontal,
   RefreshCw,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -39,7 +39,9 @@ import type { LeadMode } from "@swarm/lead";
 import {
   THEME_CHANGE_EVENT,
   buildXtermThemeFromDom,
+  swarmHex,
 } from "./themeColors.js";
+import { onWindowResize } from "./paneResize.js";
 
 // A Agent pane is a CLI agent process (Claude Code, Codex CLI, Aider,
 // Gemini CLI, OpenCode, Kimi Code, Cline, ...) — a fundamentally different
@@ -87,6 +89,21 @@ interface AgentPaneProps {
 // How long to wait with zero output before hinting that the CLI might not be
 // installed, rather than leaving the user staring at an ambiguous spinner.
 const STALL_HINT_MS = 8000;
+
+// Below this the header cannot hold six icons without them colliding with the
+// pane name, so the view controls fold into an overflow menu.
+const COMPACT_HEADER_WIDTH = 240;
+
+// xterm's theme, but with a real opaque background instead of the helper's
+// `#00000000`. The terminal region already sits on an opaque `--swarm-canvas-hi`
+// surface (see the content div below), so nothing of the glass was ever visible
+// through the canvas — all the transparency bought was per-cell alpha blending
+// on the slow renderer, and it blocked the WebGL renderer entirely. Colour is
+// read live from the token so theme switches still land.
+const paneXtermTheme = () => ({
+  ...buildXtermThemeFromDom(),
+  background: swarmHex("--swarm-canvas-hi"),
+});
 
 // CLI install instructions — imported from @swarm/agents which is the
 // single source of truth for all CLI agent metadata.
@@ -243,6 +260,9 @@ export default function AgentPane({
   sharedDirRef.current = sharedMemoryDir;
   const terminalInstance = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  // Held outside the terminal effect so the live-theme listener can tell
+  // whether the GPU renderer is still the one painting.
+  const webglRef = useRef<WebglAddon | null>(null);
   const [spawnState, setSpawnState] = useState<"connecting" | "running" | "error" | "notFound">("connecting");
   const [stalled, setStalled] = useState(false);
   // Keys come from the host (the app owns settings); the CLI-to-env mapping
@@ -250,8 +270,35 @@ export default function AgentPane({
   const apiKeys = agentsHost().apiKeys();
 
   const [paneWidth, setPaneWidth] = useState(0);
-  const [paneHeight, setPaneHeight] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const compactHeader = paneWidth > 0 && paneWidth < COMPACT_HEADER_WIDTH;
   const refitCount = useAgentsStore((s) => s.refitCount);
+
+  // Dismiss the overflow menu on an outside click, Escape, or the pane simply
+  // growing wide enough to show the buttons again — otherwise it hangs there
+  // detached from anything the user is still doing. Listens on mousedown, not
+  // blur: WebKit (which is what Tauri runs on macOS) does not focus a button on
+  // click, so a blur-based close never fires there.
+  useEffect(() => {
+    if (!menuOpen) return;
+    if (!compactHeader) {
+      setMenuOpen(false);
+      return;
+    }
+    const onDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen, compactHeader]);
 
   // Crown state — one Lead per agent, so this only looks at the swarms
   // of this pane's own folder.
@@ -286,6 +333,11 @@ export default function AgentPane({
   }, [refitCount]);
 
   const getFontSize = () => {
+    // 0 means "not measured yet", not "tiny". Guessing the smallest font before
+    // the first ResizeObserver callback and then jumping to 14 meant the pty
+    // could be opened at a column count the pane never actually had — and a CLI
+    // draws its welcome box once, for the width it was given at startup.
+    if (paneWidth === 0) return 14;
     // Floor is 11px, not smaller — below that the terminal stops being
     // readable, so a cramped multi-pane grid should scroll/clip text rather
     // than shrink it into illegibility.
@@ -299,7 +351,14 @@ export default function AgentPane({
   useEffect(() => {
     if (terminalInstance.current) {
       terminalInstance.current.options.fontSize = fontSize;
-      if (fitAddonRef.current) {
+      // Only fit against a container that actually has a size. A pane can be
+      // mounted at 0x0 — the right dock hides its inactive tab with
+      // `display:none` rather than unmounting it, so the Lead agent keeps
+      // running behind a zero-size element. fit() on that yields a nonsense
+      // grid, and pushing it to the pty reflows a live agent's output for a
+      // resize the user never made.
+      const rect = terminalRef.current?.getBoundingClientRect();
+      if (fitAddonRef.current && rect && rect.width > 0 && rect.height > 0) {
         try {
           fitAddonRef.current.fit();
           const { rows, cols } = terminalInstance.current;
@@ -325,8 +384,9 @@ export default function AgentPane({
     let disposed = false;
     let terminal: XTerm | null = null;
     let onDataDisposable: { dispose: () => void } | null = null;
-    let handleResize: (() => void) | null = null;
+    let unsubscribeResize: (() => void) | null = null;
     let observerRef: ResizeObserver | null = null;
+    let webglAddon: WebglAddon | null = null;
     let stallTimer: ReturnType<typeof setTimeout> | null = null;
     let resizeDebounce: ReturnType<typeof setTimeout> | null = null;
     let liveHandoffInterval: ReturnType<typeof setInterval> | null = null;
@@ -460,6 +520,9 @@ export default function AgentPane({
     // Last measured grid — used to tell that layout has stopped moving.
     let lastCols = 0;
     let lastRows = 0;
+    // Last grid actually pushed to the pty, so an unchanged size costs nothing.
+    let lastSyncedCols = 0;
+    let lastSyncedRows = 0;
 
     const hasValidSize = () => {
       if (!terminalRef.current) return false;
@@ -684,11 +747,16 @@ export default function AgentPane({
 
         if (disposed || !terminal) return;
 
-        setSpawnState("running");
+        // Deliberately NOT "running" yet. spawn_terminal returning only means
+        // the pty exists; the CLI has drawn nothing. Flipping state here tore
+        // the "Starting…" overlay down over an empty black rectangle and, worse,
+        // made the stall hint below unreachable — the old guard compared against
+        // a `spawnState` captured when this long-lived effect was created, so it
+        // never matched. The first byte of pty output is the honest signal, and
+        // it is what cancels this timer.
         setStalled(false);
-
         stallTimer = setTimeout(() => {
-          if (!disposed && spawnState === "connecting") setStalled(true);
+          if (!disposed) setStalled(true);
         }, STALL_HINT_MS);
 
         startLoops();
@@ -825,9 +893,10 @@ export default function AgentPane({
           // that leaves a gap between lines that isn't part of any cell — box
           // borders look disconnected and solid-colour blocks look seamed.
           lineHeight: 1,
-          theme: buildXtermThemeFromDom(),
-          // Required for the transparent background above to reach the glass.
-          allowTransparency: true,
+          theme: paneXtermTheme(),
+          // Opaque on purpose — see paneXtermTheme. Transparency here forced
+          // xterm onto its alpha-blending path and locked out the GPU renderer.
+          allowTransparency: false,
           rightClickSelectsWord: true,
           scrollback: 2000,
         };
@@ -870,10 +939,36 @@ export default function AgentPane({
         terminal.open(terminalRef.current!);
         terminalInstance.current = terminal;
 
-        // No WebGL renderer here on purpose. xterm's WebGL addon does not
-        // honour allowTransparency: it paints an opaque backdrop, which would
-        // put a solid rectangle over the pane's glass. The canvas renderer is
-        // marginally slower and is what makes a transparent terminal possible.
+        // GPU renderer. The DOM/canvas fallback rasterises every glyph on the
+        // CPU and repaints the whole viewport as a busy CLI scrolls — that is
+        // the soft, smeary text and the stutter under load. Must come after
+        // open(): the addon needs a live canvas to attach to. Some VMs and
+        // remote sessions have no GL context at all, and both the constructor
+        // (old Safari) and activation (no WebGL2) throw — a pane that renders
+        // slowly is fine, a pane that throws on mount is not.
+        try {
+          const webgl = new WebglAddon();
+          terminal.loadAddon(webgl);
+          webglAddon = webgl;
+          webglRef.current = webgl;
+          // The GPU drops the context on sleep/wake and driver resets. xterm
+          // does not recover on its own: without tearing the addon down here
+          // the pane stays permanently blank until it is closed and reopened.
+          webgl.onContextLoss(() => {
+            if (webglAddon === webgl) webglAddon = null;
+            if (webglRef.current === webgl) webglRef.current = null;
+            try {
+              webgl.dispose();
+            } catch {}
+            // dispose() hands rendering back to the DOM renderer, but only the
+            // rows xterm redraws next — force the visible ones now.
+            try {
+              terminal?.refresh(0, (terminal.rows ?? 1) - 1);
+            } catch {}
+          });
+        } catch (e) {
+          console.warn("[AgentPane] WebGL renderer unavailable, using fallback:", e);
+        }
 
         const fit = () => {
           if (disposed || !terminal) return false;
@@ -888,11 +983,22 @@ export default function AgentPane({
         const syncSize = () => {
           if (disposed || !terminal) return;
           const { rows, cols } = terminal;
+          // fit() runs on every tick but usually lands on the same grid; a pty
+          // resize for an unchanged size is a pure IPC round-trip AND makes
+          // the child redraw, so with several panes open it was the bulk of
+          // the resize cost for no visible effect.
+          if (rows === lastSyncedRows && cols === lastSyncedCols) return;
+          lastSyncedRows = rows;
+          lastSyncedCols = cols;
           invoke("resize_terminal", { paneId, rows, cols }).catch(console.error);
         };
 
         const fitAndSync = () => {
           if (resizeDebounce) clearTimeout(resizeDebounce);
+          // Pre-spawn this debounce is the settle window the two-equal-
+          // measurements check below rides on, so it stays long. Once the pty
+          // exists the tick is only fit + a deduped resize, and 150ms of it was
+          // what made a drag feel sticky.
           resizeDebounce = setTimeout(() => {
             if (disposed || !terminal) return;
             if (hasValidSize()) {
@@ -917,21 +1023,26 @@ export default function AgentPane({
                 }
               }
             }
-          }, 150);
+          }, spawned ? 40 : 150);
         };
 
         onDataDisposable = terminal.onData((data) => {
           writeToProcess(data);
         });
 
-        handleResize = fitAndSync;
-        window.addEventListener("resize", handleResize);
+        // One shared window listener for every pane instead of one each — see
+        // paneResize. The pane's own ResizeObserver stays: that is this
+        // container's geometry (grid reflow, sibling pane resize, maximize),
+        // which no window event reports. Both funnel into the same debounced
+        // fitAndSync, so a window resize that also moves this container
+        // collapses into a single fit rather than firing twice.
+        unsubscribeResize = onWindowResize(fitAndSync);
 
         const resizeObserver = new ResizeObserver((entries) => {
           for (const entry of entries) {
-            const { width, height } = entry.contentRect;
-            setPaneWidth(width);
-            setPaneHeight(height);
+            // Rounded: sub-pixel container widths would re-render the header on
+            // every frame of a drag while never crossing a layout threshold.
+            setPaneWidth(Math.round(entry.contentRect.width));
           }
           fitAndSync();
         });
@@ -954,7 +1065,7 @@ export default function AgentPane({
       if (aliveCheckInterval) clearInterval(aliveCheckInterval);
       unlistenOutput?.();
       syncNowRef.current = null;
-      if (handleResize) window.removeEventListener("resize", handleResize);
+      unsubscribeResize?.();
       observerRef?.disconnect();
       onDataDisposable?.dispose();
 
@@ -971,7 +1082,14 @@ export default function AgentPane({
         saveSessionSummary(transcriptRef.current);
       }
 
+      // Before the terminal: the addon holds a GL context and a texture atlas,
+      // and disposing it out from under a half-torn-down terminal is what makes
+      // xterm's own disposal throw. It can also already be gone (context loss),
+      // hence the guard.
       try {
+        webglRef.current = null;
+        webglAddon?.dispose();
+        webglAddon = null;
       } catch (e) {
         console.warn("[AgentPane] Failed to dispose WebGL addon:", e);
       }
@@ -991,8 +1109,14 @@ export default function AgentPane({
     const onTheme = () => {
       const t = terminalInstance.current;
       if (!t) return;
-      t.options.theme = buildXtermThemeFromDom();
+      // paneXtermTheme, not the raw helper: the helper's transparent background
+      // would leave the terminal painted in the previous theme's canvas colour
+      // (nothing else repaints that rectangle) the moment a theme switches.
+      t.options.theme = paneXtermTheme();
       try {
+        // The GPU renderer caches rasterised glyphs per colour; without
+        // dropping the atlas the old theme's text keeps being blitted.
+        webglRef.current?.clearTextureAtlas();
         t.refresh(0, t.rows - 1);
       } catch {
         /* ignore */
@@ -1010,6 +1134,22 @@ export default function AgentPane({
   const handleClear = () => {
     terminalInstance.current?.clear();
   };
+
+  // Narrow panes used to simply drop these three buttons, so "clear terminal"
+  // stopped existing instead of getting smaller. They fold into one overflow
+  // button below that threshold.
+  const viewActions: Array<{ key: string; icon: React.ReactNode; label: string; run: () => void }> = [
+    ...(onToggleMaximize
+      ? [{
+          key: "maximize",
+          icon: isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />,
+          label: isMaximized ? "Restore" : "Maximize",
+          run: onToggleMaximize,
+        }]
+      : []),
+    { key: "copy", icon: <Copy size={12} />, label: "Copy selection", run: handleCopy },
+    { key: "clear", icon: <Eraser size={12} />, label: "Clear terminal", run: handleClear },
+  ];
 
   return (
     <div className="flex flex-col h-full glass-body overflow-hidden">
@@ -1116,32 +1256,70 @@ export default function AgentPane({
           >
             <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
           </button>
-          {onToggleMaximize && paneWidth >= 240 && (
-            <button
-              onClick={onToggleMaximize}
-              className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
-              title={isMaximized ? "Restore" : "Maximize"}
-            >
-              {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-            </button>
-          )}
-          {paneWidth >= 240 && (
-            <button
-              onClick={handleCopy}
-              className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
-              title="Copy selection"
-            >
-              <Copy size={12} />
-            </button>
-          )}
-          {paneWidth >= 240 && (
-            <button
-              onClick={handleClear}
-              className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
-              title="Clear terminal"
-            >
-              <Eraser size={12} />
-            </button>
+          {/* Hairline between "what this agent IS" (crown, shared-mind sync)
+              and "what this pane DOES" (view controls). Six identically styled
+              icons in one undivided row read as a single blob when you're
+              scanning a grid of panes for the right one. */}
+          <span aria-hidden className="mx-0.5 h-3.5 w-px bg-swarm-border/70" />
+          {compactHeader ? (
+            <div className="relative" ref={menuRef}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen((v) => !v);
+                }}
+                className={`p-1.5 rounded-md transition-colors ${
+                  menuOpen
+                    ? "bg-swarm-border/60 text-swarm-text"
+                    : "text-swarm-textDim hover:bg-swarm-border/60 hover:text-swarm-text"
+                }`}
+                title="More actions"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+              >
+                <MoreHorizontal size={12} />
+              </button>
+              {menuOpen && (
+                <div
+                  role="menu"
+                  // The header is the pane's drag handle; a mousedown on the
+                  // menu's own padding would otherwise start dragging the pane
+                  // out from under the click.
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="glass-hi absolute right-0 top-full z-30 mt-1 min-w-[9.5rem] rounded-lg border border-swarm-border/60 p-1 shadow-glass"
+                >
+                  {viewActions.map((action) => (
+                    <button
+                      key={action.key}
+                      role="menuitem"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuOpen(false);
+                        action.run();
+                      }}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-swarm-textDim hover:bg-swarm-border/60 hover:text-swarm-text transition-colors"
+                    >
+                      {action.icon}
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            viewActions.map((action) => (
+              <button
+                key={action.key}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  action.run();
+                }}
+                className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
+                title={action.label}
+              >
+                {action.icon}
+              </button>
+            ))
           )}
           {onClose && (
             <button

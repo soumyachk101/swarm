@@ -1,8 +1,9 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Plus, X, Maximize2, Minimize2 } from "lucide-react";
 import { themeForKind } from "./themes.js";
+import { activatable } from "./activatable.js";
 import BoardLogo from "./BoardLogo.js";
 
 export interface StripItem {
@@ -54,6 +55,15 @@ export default function BoardStrip({
    *  chip and the `+` never slide underneath them. */
   reserveRight?: number;
 }) {
+  // The strip scrolls once enough panes are open, and panes are just as often
+  // activated from somewhere else (a keyboard shortcut, the sidebar, a drag
+  // swap) as from the strip itself. Without this the active chip can sit
+  // scrolled off-screen and the strip looks like it lost the selection.
+  const activeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeId]);
+
   return (
     // Only the tabs scroll horizontally. App controls and the view switch sit
     // left, then the scrolling tab block, then + and maximize pinned in-flow at
@@ -76,26 +86,38 @@ export default function BoardStrip({
         return (
           <div
             key={it.id}
+            ref={active ? activeRef : undefined}
             onClick={() => onSelect(it.id)}
-            className={`group flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2 text-mini font-medium transition-colors ${
+            // A chip can't be a <button>: it nests the close button, which is
+            // invalid HTML. activatable() restores the tab stop and Enter/Space.
+            {...activatable(() => onSelect(it.id), it.name)}
+            aria-current={active ? "true" : undefined}
+            className={`group flex h-7 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-md border px-2 text-mini font-medium transition-colors ${
               active
                 ? "border-swarm-border/70 glass text-swarm-text"
                 : "border-transparent text-swarm-textDim hover:bg-swarm-border/30 hover:text-swarm-text"
             }`}
             title={it.name}
           >
-            {/* Class identity = colored dot only; pane chrome stays neutral. */}
+            {/* Class identity = colored dot only; pane chrome stays neutral.
+                The active chip haloes its dot instead of tinting the chip:
+                glass-on-glass alone is too quiet to spot in a full strip. */}
             <span
               className="size-1.5 shrink-0 rounded-full"
-              style={{ background: t.accent }}
+              style={{ background: t.accent, boxShadow: active ? `0 0 0 3px ${t.accentSoft}` : undefined }}
               aria-hidden
             />
             {it.icon && <span className="shrink-0 text-swarm-textMuted">{it.icon}</span>}
             <span className="max-w-[140px] truncate">{it.name}</span>
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); onClose(it.id); }}
-              className="shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-black/25 group-hover:opacity-100"
-              title="Close"
+              // opacity-0 alone made this unreachable by keyboard: it stayed
+              // invisible while focused, so Tab landed on a button nobody could
+              // see. focus-visible reveals it the same way hover does.
+              className="shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-swarm-border/60 hover:text-swarm-text group-hover:opacity-100 focus-visible:opacity-100"
+              title={`Close ${it.name}`}
+              aria-label={`Close ${it.name}`}
             >
               <X className="size-3" />
             </button>
@@ -109,18 +131,24 @@ export default function BoardStrip({
           and in normal flow, so + trails the tabs and stops next to maximize —
           never behind it. */}
       <button
+        type="button"
         ref={addRef}
         onClick={onAdd}
         className="flex size-7 shrink-0 items-center justify-center rounded-md border border-swarm-gold/30 bg-swarm-gold/10 text-swarm-goldHi transition-colors hover:bg-swarm-gold/20"
         title="Add component"
+        aria-label="Add component"
       >
         <Plus className="size-4" />
       </button>
       {onToggleFullscreen && (
         <button
+          type="button"
           onClick={onToggleFullscreen}
-          className="ml-auto flex size-7 shrink-0 items-center justify-center rounded-md text-swarm-textMuted transition-colors hover:bg-black/30 hover:text-swarm-text"
+          // Tokenised hover, not bg-black: on the lighter themes a black wash
+          // reads as a hole punched in the toolbar rather than a hover state.
+          className="ml-auto flex size-7 shrink-0 items-center justify-center rounded-md text-swarm-textMuted transition-colors hover:bg-swarm-border/60 hover:text-swarm-text"
           title={fullscreen ? "Restore" : "Maximize plane"}
+          aria-label={fullscreen ? "Restore" : "Maximize plane"}
         >
           {fullscreen ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
         </button>

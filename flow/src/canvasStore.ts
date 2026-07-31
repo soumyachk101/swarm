@@ -13,10 +13,10 @@ export interface NodeBox extends Rect {
 export const DEFAULT_NODE_SIZE = { w: 520, h: 380 };
 
 interface CanvasState {
-  /** Node geometry, keyed by pane id. One flat map across all agents: pane
+  /** Node geometry, keyed by pane id. One flat map across all swarms: pane
    *  ids are already unique, and a pane keeps its spot when swarms switch. */
   nodes: Record<string, NodeBox>;
-  /** Camera per agent, so each project keeps its own viewpoint. */
+  /** Camera per swarm, so each project keeps its own viewpoint. */
   cameras: Record<string, Camera>;
   topZ: number;
 

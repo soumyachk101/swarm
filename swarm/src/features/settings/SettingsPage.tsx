@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X, Server, Puzzle } from "lucide-react";
 import ProvidersSection from "./ProvidersSection";
 import ModelsSection from "./ModelsSection";
@@ -27,6 +27,14 @@ const NAV_ITEMS: NavItem[] = [
 export default function SettingsPage({ onClose }: SettingsPageProps) {
   const [activeSection, setActiveSection] = useState<SectionId>("models");
 
+  // The backdrop closes it; Escape has to as well, or a keyboard user is stuck
+  // in a full-screen modal with only the × as a way out.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const renderSection = () => {
     switch (activeSection) {
       case "providers":
@@ -38,9 +46,15 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100]" onClick={onClose}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-6 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="w-full max-w-4xl h-[80vh] glass-hi rounded-2xl overflow-hidden animate-scale-in flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+        // max-h rather than a fixed 80vh: on a short window the fixed height
+        // still measured 80% of a viewport the dialog had already outgrown, so
+        // the nav and the panel both ran under the bottom edge.
+        className="flex h-[80vh] max-h-full w-full max-w-4xl flex-col overflow-hidden rounded-2xl glass-hi animate-scale-in"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-swarm-border/50 flex-shrink-0">
@@ -83,7 +97,10 @@ export default function SettingsPage({ onClose }: SettingsPageProps) {
             })}
           </nav>
 
-          <div className="flex-1 overflow-y-auto p-5">
+          {/* min-w-0: the sections hold long model ids and base URLs, and
+              without it a wide child stretched the flex item instead of
+              scrolling, pushing the nav off the left of the dialog. */}
+          <div className="min-w-0 flex-1 overflow-y-auto scrollbar-sleek p-5">
             {renderSection()}
           </div>
         </div>

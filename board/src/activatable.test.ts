@@ -44,6 +44,14 @@ describe("activatable", () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
+  it("does not double-fire when a nested button is the target", () => {
+    const fn = vi.fn();
+    // A strip chip's close button: Enter there must close, not also select.
+    activatable(fn).onKeyDown(key("Enter", { tagName: "BUTTON" }));
+    activatable(fn).onKeyDown(key(" ", { tagName: "BUTTON" }));
+    expect(fn).not.toHaveBeenCalled();
+  });
+
   it("passes the label through for screen readers", () => {
     expect(activatable(() => {}, "Agent swarm")["aria-label"]).toBe("Agent swarm");
   });

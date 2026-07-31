@@ -39,6 +39,35 @@ interface Props {
   mono?: boolean;
 }
 
+/** The lettermark box, shared by declared lettermarks and the raster fallback. */
+function Letter({ text, size, className }: { text: string; size: number; className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={className}
+      style={{
+        width: size,
+        height: size,
+        flexShrink: 0,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        // Cap the glyph well inside the box: a 1px border plus a full-height
+        // cap makes the letter kiss the frame at 12px and read as a smudge.
+        fontSize: Math.round(size * 0.58),
+        fontWeight: 700,
+        lineHeight: 1,
+        letterSpacing: "-0.02em",
+        borderRadius: Math.max(3, Math.round(size * 0.22)),
+        border: "1px solid currentColor",
+        opacity: 0.9,
+      }}
+    >
+      {text}
+    </span>
+  );
+}
+
 export default function BrandGlyph({ brand, size = 14, className, mono }: Props) {
   if (brand.kind === "raster") {
     const src = AGENT_ICON_DATA[brand.asset];
@@ -55,32 +84,14 @@ export default function BrandGlyph({ brand, size = 14, className, mono }: Props)
         />
       );
     }
+    // Asset missing (a brand added to the catalogue before its favicon was
+    // inlined). Falling through would hit the vector branch below and paint an
+    // empty <svg> — a silent hole in the strip. Show its initial instead.
+    return <Letter text={brand.title.slice(0, 1).toUpperCase()} size={size} className={className} />;
   }
 
   if (brand.kind === "letter") {
-    return (
-      <span
-        aria-hidden
-        className={className}
-        style={{
-          width: size,
-          height: size,
-          flexShrink: 0,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: Math.round(size * 0.62),
-          fontWeight: 700,
-          lineHeight: 1,
-          letterSpacing: "-0.02em",
-          borderRadius: Math.max(3, Math.round(size * 0.22)),
-          border: "1px solid currentColor",
-          opacity: 0.9,
-        }}
-      >
-        {brand.text}
-      </span>
-    );
+    return <Letter text={brand.text} size={size} className={className} />;
   }
 
   const vector = brand as Extract<Brand, { kind: "vector" }>;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Globe, ChevronDown, ChevronUp, Trash2, Pencil, Check, X, AlertCircle, Loader2 } from "lucide-react";
+import { Plus, Globe, ChevronDown, ChevronUp, Trash2, Pencil, Check, X, AlertCircle, Loader2, Eye, EyeOff } from "lucide-react";
 import { useProviderStore, POPULAR_PROVIDERS, EXTRA_PROVIDERS, type ProviderConfig, type ProviderTemplate } from "@/features/settings/providerStore";
 
 function VerifyButton({ disabled, verifying, onClick }: { disabled: boolean; verifying: boolean; onClick: () => void }) {
@@ -51,12 +51,14 @@ function ConnectForm({
   const [newHeaderVal, setNewHeaderVal] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState("");
-
-  const builtinIds = new Set(POPULAR_PROVIDERS.map((p) => p.id));
-
-  const isBuiltin = !isCustom && builtinIds.has(id);
+  const [showKey, setShowKey] = useState(false);
 
   const handleVerify = async () => {
+    // Pasting from a password manager routinely carries a trailing newline, and
+    // the provider answers that with the same 401 as a wrong key. Trim once,
+    // here, so the stored config matches what was actually verified.
+    const key = apiKey.trim();
+
     setVerifying(true);
     setVerifyError("");
 
@@ -66,13 +68,21 @@ function ConnectForm({
 
       if (apiType === "anthropic-messages") {
         apiUrl = "https://api.anthropic.com/v1/models";
-        fetchHeaders["x-api-key"] = apiKey;
+        fetchHeaders["x-api-key"] = key;
         fetchHeaders["anthropic-version"] = "2023-06-01";
       } else {
-        const base = baseUrl.replace(/\/+$/, "");
+        const base = baseUrl.trim().replace(/\/+$/, "");
+        // An empty or relative base resolved against the app's own origin and
+        // came back as an opaque "Connection Error", which reads like the
+        // provider is down rather than like a field left blank.
+        if (!/^https?:\/\//i.test(base)) {
+          setVerifyError("Base URL must start with http:// or https://");
+          setVerifying(false);
+          return;
+        }
         apiUrl = `${base}/models`;
-        if (apiKey) {
-          fetchHeaders["Authorization"] = `Bearer ${apiKey}`;
+        if (key) {
+          fetchHeaders["Authorization"] = `Bearer ${key}`;
         }
       }
 
@@ -99,15 +109,12 @@ function ConnectForm({
         return;
       }
 
-      let models: string[] = [];
-      if (apiType === "anthropic-messages") {
-        models = (data?.data || []).map((m: any) => m.id).filter(Boolean);
-      } else {
-        models = (data?.data || []).map((m: any) => m.id).filter(Boolean);
-      }
+      // Anthropic and the OpenAI-compatible providers both answer with
+      // { data: [{ id }] }, so there is one shape to read, not two.
+      const models: string[] = (data?.data || []).map((m: any) => m.id).filter(Boolean);
 
       if (models.length === 0) {
-        setVerifyError("Model Not Found");
+        setVerifyError("Connected, but the provider listed no models");
         setVerifying(false);
         return;
       }
@@ -117,8 +124,8 @@ function ConnectForm({
         name: name || (template?.name || id),
         type: isCustom ? "custom" : "builtin",
         apiType,
-        baseUrl,
-        apiKey,
+        baseUrl: baseUrl.trim(),
+        apiKey: key,
         headers,
         enabled: true,
         verified: true,
@@ -209,13 +216,37 @@ function ConnectForm({
 
         <div className="flex flex-col gap-1">
           <label className="text-micro text-swarm-textMuted uppercase tracking-wider">API Key {isCustom && "(optional)"}</label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={apiType === "anthropic-messages" ? "sk-ant-..." : "sk-..."}
-            className="w-full glass-inset border border-swarm-border rounded-lg px-2.5 py-1.5 text-xs text-swarm-text placeholder-swarm-textMuted outline-none focus:ring-1 focus:ring-swarm-gold transition-colors font-mono"
-          />
+          {/* Masked by default, but revealable: a key pasted with a stray space
+              or a truncated tail fails verification with a flat "Invalid API
+              Key" and there was no way to look at what was actually in there. */}
+          <div className="relative">
+            <input
+              type={showKey ? "text" : "password"}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && apiKey) handleVerify(); }}
+              placeholder={apiType === "anthropic-messages" ? "sk-ant-..." : "sk-..."}
+              autoComplete="off"
+              spellCheck={false}
+              className="w-full glass-inset border border-swarm-border rounded-lg pl-2.5 pr-8 py-1.5 text-xs text-swarm-text placeholder-swarm-textMuted outline-none focus:ring-1 focus:ring-swarm-gold transition-colors font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              aria-label={showKey ? "Hide API key" : "Show API key"}
+              title={showKey ? "Hide" : "Show"}
+              className="absolute inset-y-0 right-0 flex w-8 items-center justify-center rounded-r-lg text-swarm-textMuted transition-colors hover:text-swarm-text"
+            >
+              {showKey ? <EyeOff size={12} /> : <Eye size={12} />}
+            </button>
+          </div>
+          {/* Caught before a network round-trip, because the API answers a
+              whitespace-padded key with the same 401 as a wrong one. */}
+          {apiKey !== apiKey.trim() && (
+            <span className="text-micro text-swarm-warn">
+              Key has leading or trailing whitespace — it will be trimmed.
+            </span>
+          )}
         </div>
 
         {isCustom && (
@@ -233,7 +264,7 @@ function ConnectForm({
                       delete next[k];
                       setHeaders(next);
                     }}
-                    className="p-0.5 rounded text-swarm-textMuted hover:text-red-400 transition-colors"
+                    className="p-0.5 rounded text-swarm-textMuted hover:text-swarm-err transition-colors"
                   >
                     <X size={10} />
                   </button>
@@ -274,7 +305,7 @@ function ConnectForm({
       </div>
 
       {verifyError && (
-        <div className="flex items-center gap-1.5 text-micro text-red-400 bg-red-400/10 rounded px-2 py-1.5 border border-red-400/20">
+        <div className="flex items-center gap-1.5 text-micro text-swarm-err bg-swarm-err/10 rounded px-2 py-1.5 border border-swarm-err/20">
           <AlertCircle size={10} />
           {verifyError}
         </div>
@@ -282,7 +313,7 @@ function ConnectForm({
 
       <div className="flex justify-end">
         <VerifyButton
-          disabled={isBuiltin ? !apiKey : isCustom ? !id || !name : !apiKey}
+          disabled={isCustom ? !id.trim() || !name.trim() : !apiKey.trim()}
           verifying={verifying}
           onClick={handleVerify}
         />
@@ -335,7 +366,7 @@ function ProviderRow({ provider, isConnected = false, onConnect, onEdit, onDelet
         {onDelete && (
           <button
             onClick={onDelete}
-            className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textMuted hover:text-red-400 transition-colors"
+            className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textMuted hover:text-swarm-err transition-colors"
             title="Delete"
           >
             <Trash2 size={12} />
@@ -347,7 +378,7 @@ function ProviderRow({ provider, isConnected = false, onConnect, onEdit, onDelet
             disabled={connected}
             className={`px-2.5 py-1 rounded-lg text-micro transition-colors flex items-center gap-1 ${
               connected
-                ? "bg-green-500/10 text-green-400 border border-green-500/20 cursor-default"
+                ? "bg-swarm-ok/10 text-swarm-ok border border-swarm-ok/20 cursor-default"
                 : "bg-swarm-gold/10 border border-swarm-gold/20 text-swarm-goldHi hover:bg-swarm-gold/20"
             }`}
           >
@@ -391,6 +422,10 @@ export default function ProvidersSection() {
   };
 
   const handleDelete = (id: string) => {
+    // The stored API key goes with it and is not recoverable from anywhere in
+    // the app — too much to lose to a mis-click on a 12px trash icon.
+    const p = providers.find((x) => x.id === id);
+    if (!window.confirm(`Remove ${p?.name ?? id}? Its API key is deleted with it.`)) return;
     removeProvider(id);
   };
 

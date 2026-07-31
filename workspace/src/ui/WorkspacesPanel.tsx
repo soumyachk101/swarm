@@ -12,11 +12,13 @@ interface WorkspacesPanelProps {
   onToggleDock?: () => void;
 }
 
+// Tokens, not raw Tailwind palette entries: bg-green-400 stayed the same green
+// in Rose, Forest and Dracula and clashed with every one of them.
 const STATUS_DOT: Record<AgentStatus, string> = {
-  launching: "bg-yellow-400 animate-pulse",
-  running: "bg-green-400",
+  launching: "bg-swarm-warn animate-pulse",
+  running: "bg-swarm-ok",
   idle: "bg-swarm-textMuted",
-  error: "bg-red-400",
+  error: "bg-swarm-err",
   done: "bg-swarm-gold",
 };
 
@@ -34,6 +36,14 @@ export default function WorkspacesPanel({ onClose, docked, onToggleDock }: Works
 
   const [editingWs, setEditingWs] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+
+  // Committing a blank rename leaves a nameless row that can't be told apart
+  // from its neighbours, so an empty value just cancels the edit.
+  const commitRename = (id: string) => {
+    const next = editValue.trim();
+    if (next) updateWorkspace(id, { name: next, autoNamed: false });
+    setEditingWs(null);
+  };
 
   const handleAdd = () => {
     const colors = ['#c9a227', '#8fae7a', '#7f9db8', '#b79ae0', '#c66b5a', '#7fb3ab'];
@@ -70,25 +80,37 @@ export default function WorkspacesPanel({ onClose, docked, onToggleDock }: Works
           </button>
           <button
             onClick={onClose}
+            title="Close workspaces"
+            aria-label="Close workspaces"
             className="p-1 rounded-md hover:bg-swarm-border/60 text-swarm-textMuted hover:text-swarm-text transition-colors"
           >
             <X size={14} />
           </button>
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      <div className="flex-1 overflow-y-auto scrollbar-sleek p-2 space-y-1">
+        {/* A blank panel reads as a broken render; say the list is empty on purpose. */}
+        {workspaces.length === 0 && (
+          <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+            <WorkspaceMark size={24} className="mb-2 text-swarm-textMuted/50" />
+            <p className="text-mini text-swarm-textMuted">No workspaces yet</p>
+          </div>
+        )}
         {workspaces.map((ws) => {
           const isActive = ws.id === activeWorkspaceId;
           const wsSwarms = agents.filter((b) => b.workspaceId === ws.id);
           const activeSwarms = wsSwarms.filter((b) => agentStatuses[b.id] === "running" || agentStatuses[b.id] === "launching");
 
           return (
+            // `relative` is load-bearing: the delete button below is absolutely
+            // positioned, and without a positioned row every row's X stacked in
+            // one corner of the panel instead of sitting on its own row.
             <div
               key={ws.id}
               onClick={() => handleActivate(ws.id)}
-              {...activatable(() => handleActivate(ws.id), `Agent ${ws.name}`)}
+              {...activatable(() => handleActivate(ws.id), `Workspace ${ws.name}`)}
               aria-current={isActive ? "true" : undefined}
-              className={`group flex flex-col px-2.5 py-2 rounded-lg text-xs cursor-pointer transition-all ${
+              className={`group relative flex flex-col px-2.5 py-2 pr-7 rounded-lg text-xs cursor-pointer transition-all ${
                 isActive
                   ? "bg-swarm-gold/10 text-swarm-goldHi ring-1 ring-swarm-gold/20"
                   : "text-swarm-textDim hover:text-swarm-text hover:bg-swarm-border/40"
@@ -104,19 +126,22 @@ export default function WorkspacesPanel({ onClose, docked, onToggleDock }: Works
                     autoFocus
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
-                    onBlur={() => { updateWorkspace(ws.id, { name: editValue }); setEditingWs(null); }}
+                    onBlur={() => commitRename(ws.id)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") { updateWorkspace(ws.id, { name: editValue }); setEditingWs(null); }
+                      if (e.key === "Enter") commitRename(ws.id);
                       if (e.key === "Escape") setEditingWs(null);
                     }}
+                    spellCheck={false}
                     className="flex-1 bg-transparent border-b border-swarm-gold/40 text-swarm-text text-xs outline-none min-w-0"
                     onClick={(e) => e.stopPropagation()}
                   />
                 ) : (
                   <span
-                    className="truncate flex-1"
+                    className="min-w-0 flex-1 truncate"
                     onDoubleClick={(e) => { e.stopPropagation(); setEditingWs(ws.id); setEditValue(ws.name); }}
-                    title="Double-click to rename"
+                    // Workspace names are user data of unbounded length: without the
+                    // full value in the tooltip a truncated row is unidentifiable.
+                    title={`${ws.name}${ws.boundProjectPath ? ` — ${ws.boundProjectPath}` : ""}\nDouble-click to rename`}
                   >
                     {ws.name}
                   </span>
@@ -133,18 +158,25 @@ export default function WorkspacesPanel({ onClose, docked, onToggleDock }: Works
 
               {/* Agent status row */}
               {activeSwarms.length > 0 && (
-                <div className="flex items-center gap-2 mt-1.5 pl-5">
-                  {activeSwarms.slice(0, 3).map((swarm) => (
-                    <span
-                      key={swarm.id}
-                      className="flex items-center gap-1 text-micro text-swarm-textMuted"
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[agentStatuses[swarm.id] || "idle"]}`} />
-                      {swarm.customName || swarm.cliName}
-                    </span>
-                  ))}
+                <div className="flex min-w-0 items-center gap-2 mt-1.5 pl-5">
+                  {activeSwarms.slice(0, 3).map((agent) => {
+                    // Agent names are user-editable, so each chip has to be able
+                    // to shrink — three long ones otherwise push the row past the
+                    // fixed 280px panel and clip against its overflow-hidden edge.
+                    const label = agent.customName || agent.cliName;
+                    return (
+                      <span
+                        key={agent.id}
+                        title={label}
+                        className="flex min-w-0 items-center gap-1 text-micro text-swarm-textMuted"
+                      >
+                        <span className={`w-1.5 h-1.5 shrink-0 rounded-full ${STATUS_DOT[agentStatuses[agent.id] || "idle"]}`} />
+                        <span className="truncate">{label}</span>
+                      </span>
+                    );
+                  })}
                   {activeSwarms.length > 3 && (
-                    <span className="text-micro text-swarm-textMuted">+{activeSwarms.length - 3}</span>
+                    <span className="shrink-0 text-micro text-swarm-textMuted">+{activeSwarms.length - 3}</span>
                   )}
                 </div>
               )}
@@ -161,9 +193,13 @@ export default function WorkspacesPanel({ onClose, docked, onToggleDock }: Works
               {workspaces.length > 1 && (
                 <button
                   onClick={(e) => { e.stopPropagation(); removeWorkspace(ws.id); }}
-                  className="absolute right-2 top-2 p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-swarm-err/25 text-swarm-textMuted hover:text-swarm-err transition-all"
+                  title={`Close ${ws.name}`}
+                  aria-label={`Close ${ws.name}`}
+                  // focus-visible keeps the button reachable by keyboard: a purely
+                  // hover-gated control is invisible to anyone tabbing through.
+                  className="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-swarm-err/25 text-swarm-textMuted hover:text-swarm-err transition-all"
                 >
-                  <X size={10} />
+                  <X size={11} />
                 </button>
               )}
             </div>

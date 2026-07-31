@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { activatable } from "@swarm/board";
 import { useWorkspaceStore } from "../store.js";
@@ -28,8 +28,14 @@ export default function WorkspaceTabStrip() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const activeTabRef = useRef<HTMLDivElement>(null);
 
-  const activeWs = workspaces.find((w) => w.id === activeWorkspaceId);
+  // The strip scrolls horizontally, so with enough workspaces the active one can
+  // sit off-screen — switching by keyboard or from another surface would look
+  // like nothing happened. Pull it back into view whenever selection changes.
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeWorkspaceId, workspaces.length]);
 
   const handleAdd = () => {
     const ws = {
@@ -66,16 +72,23 @@ export default function WorkspaceTabStrip() {
   };
 
   return (
-    <div className="glass-toolbar border-b border-swarm-border/60 flex items-center h-9 px-2 gap-0.5 overflow-x-auto no-scrollbar flex-shrink-0">
+    // `no-scrollbar` was never defined anywhere in the stylesheet, so this 36px
+    // strip has been rendering a native horizontal scrollbar across its bottom
+    // edge. Hide it inline instead of inventing another global utility.
+    <div className="glass-toolbar border-b border-swarm-border/60 flex items-center h-9 px-2 gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden flex-shrink-0">
       {workspaces.map((ws) => {
         const isActive = ws.id === activeWorkspaceId;
         return (
+          // shrink-0, not min-w-0: the strip is overflow-x-auto, and letting tabs
+          // flex-shrink meant a dozen workspaces squashed into unreadable slivers
+          // instead of scrolling.
           <div
             key={ws.id}
+            ref={isActive ? activeTabRef : undefined}
             onClick={() => setActiveWorkspace(ws.id)}
-            {...activatable(() => setActiveWorkspace(ws.id), `Switch to agent ${ws.name}`)}
+            {...activatable(() => setActiveWorkspace(ws.id), `Switch to workspace ${ws.name}`)}
             aria-current={isActive ? "true" : undefined}
-            className={`group relative flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs cursor-pointer transition-all select-none whitespace-nowrap min-w-0 ${
+            className={`group relative flex shrink-0 items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs cursor-pointer transition-all select-none whitespace-nowrap ${
               isActive
                 ? "bg-swarm-gold/10 text-swarm-goldHi shadow-[inset_0_-1px_0_rgb(var(--swarm-gold))]"
                 : "text-swarm-textDim hover:text-swarm-text hover:bg-swarm-border/40"
@@ -103,6 +116,7 @@ export default function WorkspaceTabStrip() {
             ) : (
               <span
                 className="truncate max-w-[100px]"
+                title={`${ws.name}${ws.boundProjectPath ? ` — ${ws.boundProjectPath}` : ""}`}
                 onDoubleClick={(e) => {
                   e.stopPropagation();
                   startRename(ws.id, ws.name);
@@ -122,7 +136,14 @@ export default function WorkspaceTabStrip() {
                   e.stopPropagation();
                   handleRemove(ws.id);
                 }}
-                className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-swarm-err/25 text-swarm-textMuted hover:text-swarm-err transition-all ml-0.5"
+                title={`Close ${ws.name}`}
+                aria-label={`Close ${ws.name}`}
+                // Stays visible on the active tab and on keyboard focus: a
+                // hover-only close is unreachable without a pointer, and a 11px
+                // glyph in a 0-padding box is a near-impossible click target.
+                className={`ml-0.5 flex size-5 shrink-0 items-center justify-center rounded hover:bg-swarm-err/25 text-swarm-textMuted hover:text-swarm-err transition-all focus-visible:opacity-100 group-hover:opacity-100 ${
+                  isActive ? "opacity-70" : "opacity-0"
+                }`}
               >
                 <X size={11} />
               </button>
@@ -133,8 +154,11 @@ export default function WorkspaceTabStrip() {
 
       <button
         onClick={handleAdd}
-        className="p-1.5 rounded-lg text-swarm-textMuted hover:text-swarm-goldHi hover:bg-swarm-gold/10 transition-colors flex-shrink-0 ml-0.5"
-        title="New agent"
+        // sticky: once the strip overflows, a trailing "+" scrolls out of reach
+        // and there is no other way to add a workspace from here.
+        className="sticky right-0 p-1.5 rounded-lg bg-swarm-surface text-swarm-textMuted hover:text-swarm-goldHi hover:bg-swarm-gold/10 transition-colors flex-shrink-0 ml-0.5"
+        title="New workspace"
+        aria-label="New workspace"
       >
         <Plus size={14} />
       </button>
