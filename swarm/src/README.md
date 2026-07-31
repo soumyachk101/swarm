@@ -42,7 +42,7 @@ src/
 - **Domain logic belongs in the root packages**, not here. Swarm borrows
   `@swarm/{mind,lead,tasks,pheromone,agents}` and supplies thin
   adapters for side effects (see `features/orchestration/swarmMindAdapters.ts`).
-  If you're writing board rules or orchestration policy in `Swarm/`, it's in the
+  If you're writing board rules or orchestration policy in `swarm/`, it's in the
   wrong repo folder.
 - **A feature owns its store.** `agentsStore` lives in `agents/`, not a
   global `stores/`. Only genuinely cross-cutting state goes in `shared/`.

@@ -48,8 +48,8 @@ flowchart LR
     ORCH --> AG
 ```
 
-- **Hybrid retrieval** — query is embedded as a deterministic 384-dim char n-gram (identical in Rust and JS), fused with SQLite FTS via Reciprocal Rank Fusion, then token-budget capped. See [`Pheromone/src/search`](Pheromone/src/search).
-- **Orchestration** — `SwarmMind.Orchestrator` runs file-ownership lock checks before dispatch and merges branches on approve. Pure core stays free of `node:` imports (enforced by a test); Swarm injects adapters in [`swarmmindAdapters.ts`](Swarm/src/features/orchestration/swarmmindAdapters.ts).
+- **Hybrid retrieval** — query is embedded as a deterministic 384-dim char n-gram (identical in Rust and JS), fused with SQLite FTS via Reciprocal Rank Fusion, then token-budget capped. See [`pheromone/src/search`](pheromone/src/search).
+- **Orchestration** — `SwarmMind.Orchestrator` runs file-ownership lock checks before dispatch and merges branches on approve. Pure core stays free of `node:` imports (enforced by a test); Swarm injects adapters in [`swarmMindAdapters.ts`](swarm/src/features/orchestration/swarmMindAdapters.ts).
 
 ```mermaid
 graph LR
@@ -60,7 +60,7 @@ graph LR
     SWARM --> RV[review] --> MG[merge + release locks]
 ```
 
-- **Pure card + AVD logic** — board ordering ([`Tasks/src/cards.ts`](Tasks/src/cards.ts)) and Android `config.ini` generation ([`Swarm/src/features/emulator/android/avd.ts`](Swarm/src/features/emulator/android/avd.ts)) are pure and unit-tested.
+- **Pure card + AVD logic** — board ordering ([`tasks/src/cards.ts`](tasks/src/cards.ts)) and Android `config.ini` generation ([`swarm/src/features/emulator/android/avd.ts`](swarm/src/features/emulator/android/avd.ts)) are pure and unit-tested.
 
 ## 🛠️ Tech Stack
 
@@ -96,20 +96,20 @@ Provider API keys are entered in the in-app Settings panel and stored locally �
 ```bash
 pnpm install
 pnpm turbo build
-cd Swarm && pnpm tauri:dev
+cd swarm && pnpm tauri:dev
 ```
 
 **Build installers**
 
 ```bash
-cd Swarm && pnpm tauri:build
+cd swarm && pnpm tauri:build
 ```
 
 ## 📁 Project Structure
 
 ```text
-Swarm/
-├── Swarm/                     # Tauri desktop app
+swarm-ai/
+├── swarm/                     # Tauri desktop app
 │   ├── src/
 │   │   ├── app/              # HomePage shell (title bar, planes, docks)
 │   │   ├── features/         # one folder per feature (owns UI + store + tests)
@@ -125,13 +125,13 @@ Swarm/
 │   │   │   ├── memory/ · sessions/ · settings/ · workspaces/ · dock/
 │   │   └── shared/           # cross-feature: tauri, stores, logo
 │   └── src-tauri/            # Rust: PTY, fs, git/worktree, CDP, emulator, whisper
-├── Pheromone/                   # memory: DB, retrieval, injection
+├── pheromone/                   # memory: DB, retrieval, injection
 │   └── pheromone-mcp/           # MCP stdio server (pheromone_query)
-├── SwarmMind/                 # orchestration engine (registry, locks, worktrees)
-├── Lead/                 # planning: breakdown, assignment, review routing
-├── Tasks/                 # board/pipeline state + React UI
-├── Agents/               # per-CLI adapters + launcher
-├── Voice/                 # local voice layer (whisper.cpp, injectable ports)
+├── swarmmind/                 # orchestration engine (registry, locks, worktrees)
+├── lead/                 # planning: breakdown, assignment, review routing
+├── tasks/                 # board/pipeline state + React UI
+├── agents/               # per-CLI adapters + launcher
+├── voice/                 # local voice layer (whisper.cpp, injectable ports)
 ├── landing-page/             # Next.js marketing site (topo/aurora hero)
 ├── pnpm-workspace.yaml
 └── turbo.json
@@ -153,7 +153,7 @@ Consumed by Swarm via `workspace:*`. Each ships a pure entry; Node-only engines 
 
 ## ⬇️ Downloads
 
-No prebuilt binaries are published. `cd Swarm && pnpm tauri:build` produces Windows installers under `Swarm/src-tauri/target/release/bundle/`:
+No prebuilt binaries are published. `cd swarm && pnpm tauri:build` produces Windows installers under `swarm/src-tauri/target/release/bundle/`:
 
 | Installer | Path |
 | --- | --- |

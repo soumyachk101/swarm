@@ -15,17 +15,17 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  Agents:
+  agents:
     dependencies:
       '@swarm/board':
         specifier: workspace:*
-        version: link:../Board
+        version: link:../board
       '@swarm/lead':
         specifier: workspace:*
-        version: link:../Lead
+        version: link:../lead
       '@swarm/pheromone':
         specifier: workspace:*
-        version: link:../Pheromone
+        version: link:../pheromone
       lucide-react:
         specifier: ^0.400.0
         version: 0.400.0(react@18.3.1)
@@ -67,7 +67,7 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  Board:
+  board:
     dependencies:
       lucide-react:
         specifier: ^0.474.0
@@ -95,11 +95,11 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  Flow:
+  flow:
     dependencies:
       '@swarm/board':
         specifier: workspace:*
-        version: link:../Board
+        version: link:../board
       lucide-react:
         specifier: ^0.474.0
         version: 0.474.0(react@18.3.1)
@@ -126,14 +126,14 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  Lead:
+  lead:
     dependencies:
       '@swarm/board':
         specifier: workspace:*
-        version: link:../Board
+        version: link:../board
       '@swarm/pheromone':
         specifier: workspace:*
-        version: link:../Pheromone
+        version: link:../pheromone
       lucide-react:
         specifier: ^0.400.0
         version: 0.400.0(react@18.3.1)
@@ -160,7 +160,7 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  Pheromone:
+  pheromone:
     dependencies:
       gray-matter:
         specifier: ^4.0.3
@@ -203,14 +203,14 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  Pheromone/pheromone-mcp:
+  pheromone/pheromone-mcp:
     dependencies:
       '@swarm/lead':
         specifier: workspace:*
-        version: link:../../Lead
+        version: link:../../lead
       '@swarm/mind':
         specifier: workspace:*
-        version: link:../../SwarmMind
+        version: link:../../swarmmind
       '@swarm/pheromone':
         specifier: workspace:*
         version: link:..
@@ -222,44 +222,44 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  Swarm:
+  swarm:
     dependencies:
       '@swarm/agents':
         specifier: workspace:*
-        version: link:../Agents
+        version: link:../agents
       '@swarm/board':
         specifier: workspace:*
-        version: link:../Board
+        version: link:../board
       '@swarm/extension':
         specifier: workspace:*
-        version: link:../SwarmExtension
+        version: link:../swarmextension
       '@swarm/flow':
         specifier: workspace:*
-        version: link:../Flow
+        version: link:../flow
       '@swarm/lead':
         specifier: workspace:*
-        version: link:../Lead
+        version: link:../lead
       '@swarm/mind':
         specifier: workspace:*
-        version: link:../SwarmMind
+        version: link:../swarmmind
       '@swarm/pheromone':
         specifier: workspace:*
-        version: link:../Pheromone
+        version: link:../pheromone
       '@swarm/pheromone-mcp':
         specifier: workspace:*
-        version: link:../Pheromone/pheromone-mcp
+        version: link:../pheromone/pheromone-mcp
       '@swarm/plugins':
         specifier: workspace:*
-        version: link:../SwarmPlugins
+        version: link:../swarmplugins
       '@swarm/tasks':
         specifier: workspace:*
-        version: link:../Tasks
+        version: link:../tasks
       '@swarm/voice':
         specifier: workspace:*
-        version: link:../Voice
+        version: link:../voice
       '@swarm/workspace':
         specifier: workspace:*
-        version: link:../Workspace
+        version: link:../workspace
       '@tauri-apps/api':
         specifier: ^2.1.0
         version: 2.11.1
@@ -322,11 +322,11 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  SwarmExtension:
+  swarmextension:
     dependencies:
       '@swarm/board':
         specifier: workspace:*
-        version: link:../Board
+        version: link:../board
       '@tauri-apps/api':
         specifier: ^2.1.0
         version: 2.11.1
@@ -353,14 +353,14 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  SwarmMind:
+  swarmmind:
     dependencies:
       '@swarm/lead':
         specifier: workspace:*
-        version: link:../Lead
+        version: link:../lead
       '@swarm/tasks':
         specifier: workspace:*
-        version: link:../Tasks
+        version: link:../tasks
       zustand:
         specifier: ^5.0.0
         version: 5.0.14(@types/react@19.2.17)(react@19.2.7)
@@ -378,7 +378,7 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  SwarmPlugins:
+  swarmplugins:
     dependencies:
       lucide-react:
         specifier: ^0.474.0
@@ -400,7 +400,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  Tasks:
+  tasks:
     dependencies:
       lucide-react:
         specifier: ^0.577.0
@@ -428,7 +428,7 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  Voice:
+  voice:
     dependencies:
       lucide-react:
         specifier: ^0.400.0
@@ -453,17 +453,17 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  Workspace:
+  workspace:
     dependencies:
       '@swarm/agents':
         specifier: workspace:*
-        version: link:../Agents
+        version: link:../agents
       '@swarm/board':
         specifier: workspace:*
-        version: link:../Board
+        version: link:../board
       '@swarm/tasks':
         specifier: workspace:*
-        version: link:../Tasks
+        version: link:../tasks
       lucide-react:
         specifier: ^0.400.0
         version: 0.400.0(react@18.3.1)
