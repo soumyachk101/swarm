@@ -1,0 +1,143 @@
+"use client";
+
+import { useRef, useState } from "react";
+import { Plus, X } from "lucide-react";
+import { activatable } from "@swarm/board";
+import { useWorkspaceStore } from "../store.js";
+import { useAgentsStore } from "@swarm/agents/ui";
+
+function randomColor() {
+  const colors = ['#c9a227', '#8fae7a', '#7f9db8', '#b79ae0', '#c66b5a', '#7fb3ab', '#c98fae', '#d99a1c'];
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
+function nextId() {
+  return `ws-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export default function WorkspaceTabStrip() {
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const addWorkspace = useWorkspaceStore((s) => s.addWorkspace);
+  const removeWorkspace = useWorkspaceStore((s) => s.removeWorkspace);
+  const setActiveWorkspace = useWorkspaceStore((s) => s.setActiveWorkspace);
+  const renameWorkspace = useWorkspaceStore((s) => s.renameWorkspace);
+
+  const agents = useAgentsStore((s) => s.agents);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const activeWs = workspaces.find((w) => w.id === activeWorkspaceId);
+
+  const handleAdd = () => {
+    const ws = {
+      id: nextId(),
+      name: "Untitled",
+      autoNamed: true,
+      color: randomColor(),
+      boundProjectPath: "",
+      taskCards: [],
+    };
+    addWorkspace(ws);
+  };
+
+  const handleRemove = (id: string) => {
+    const ws = workspaces.find((w) => w.id === id);
+    if (ws && agents.some((b) => b.workspaceId === ws.id)) {
+      const ok = confirm(`"${ws.name}" has running agents. Are you sure?`);
+      if (!ok) return;
+    }
+    removeWorkspace(id);
+  };
+
+  const startRename = (id: string, name: string) => {
+    setEditingId(id);
+    setEditValue(name);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const saveRename = (id: string) => {
+    if (editValue.trim()) {
+      renameWorkspace(id, editValue.trim());
+    }
+    setEditingId(null);
+  };
+
+  return (
+    <div className="glass-toolbar border-b border-swarm-border/60 flex items-center h-9 px-2 gap-0.5 overflow-x-auto no-scrollbar flex-shrink-0">
+      {workspaces.map((ws) => {
+        const isActive = ws.id === activeWorkspaceId;
+        return (
+          <div
+            key={ws.id}
+            onClick={() => setActiveWorkspace(ws.id)}
+            {...activatable(() => setActiveWorkspace(ws.id), `Switch to agent ${ws.name}`)}
+            aria-current={isActive ? "true" : undefined}
+            className={`group relative flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs cursor-pointer transition-all select-none whitespace-nowrap min-w-0 ${
+              isActive
+                ? "bg-swarm-gold/10 text-swarm-goldHi shadow-[inset_0_-1px_0_rgb(var(--swarm-gold))]"
+                : "text-swarm-textDim hover:text-swarm-text hover:bg-swarm-border/40"
+            }`}
+          >
+            <span
+              className="w-2 h-2 rounded-full flex-shrink-0"
+              style={{ backgroundColor: ws.color }}
+            />
+            {editingId === ws.id ? (
+              <input
+                ref={inputRef}
+                type="text"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onBlur={() => saveRename(ws.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") saveRename(ws.id);
+                  if (e.key === "Escape") setEditingId(null);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="glass-inset text-swarm-text px-1.5 py-0.5 rounded text-xs w-24 outline-none focus:ring-1 focus:ring-swarm-gold"
+                autoFocus
+              />
+            ) : (
+              <span
+                className="truncate max-w-[100px]"
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  startRename(ws.id, ws.name);
+                }}
+              >
+                {ws.name}
+              </span>
+            )}
+            {agents.filter((b) => b.workspaceId === ws.id).length > 0 && (
+              <span className="text-micro text-swarm-textMuted font-mono">
+                ({agents.filter((b) => b.workspaceId === ws.id).length})
+              </span>
+            )}
+            {workspaces.length > 1 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemove(ws.id);
+                }}
+                className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-swarm-err/25 text-swarm-textMuted hover:text-swarm-err transition-all ml-0.5"
+              >
+                <X size={11} />
+              </button>
+            )}
+          </div>
+        );
+      })}
+
+      <button
+        onClick={handleAdd}
+        className="p-1.5 rounded-lg text-swarm-textMuted hover:text-swarm-goldHi hover:bg-swarm-gold/10 transition-colors flex-shrink-0 ml-0.5"
+        title="New agent"
+      >
+        <Plus size={14} />
+      </button>
+    </div>
+  );
+}

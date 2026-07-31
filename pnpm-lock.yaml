@@ -15,15 +15,42 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  BeeVoice:
+  Agents:
     dependencies:
+      '@swarm/board':
+        specifier: workspace:*
+        version: link:../Board
+      '@swarm/lead':
+        specifier: workspace:*
+        version: link:../Lead
+      '@swarm/pheromone':
+        specifier: workspace:*
+        version: link:../Pheromone
       lucide-react:
         specifier: ^0.400.0
         version: 0.400.0(react@18.3.1)
+      xterm:
+        specifier: ^5.3.0
+        version: 5.3.0
+      xterm-addon-fit:
+        specifier: ^0.8.0
+        version: 0.8.0(xterm@5.3.0)
+      xterm-addon-search:
+        specifier: ^0.13.0
+        version: 0.13.0(xterm@5.3.0)
+      xterm-addon-webgl:
+        specifier: ^0.16.0
+        version: 0.16.0(xterm@5.3.0)
+      zustand:
+        specifier: ^5.0.0
+        version: 5.0.14(@types/react@18.3.31)(react@18.3.1)
     devDependencies:
       '@tauri-apps/api':
         specifier: ^2.1.0
         version: 2.11.1
+      '@tauri-apps/plugin-shell':
+        specifier: ^2.0.0
+        version: 2.3.5
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.0
@@ -40,44 +67,199 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  Hive:
+  Board:
     dependencies:
-      '@hiveory/bee-voice':
+      lucide-react:
+        specifier: ^0.474.0
+        version: 0.474.0(react@18.3.1)
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+      simple-icons:
+        specifier: ^16.27.1
+        version: 16.27.1
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.0
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: ^18.3.0
+        version: 18.3.7(@types/react@18.3.31)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
+
+  Flow:
+    dependencies:
+      '@swarm/board':
         specifier: workspace:*
-        version: link:../BeeVoice
-      '@hiveory/hiveextension':
+        version: link:../Board
+      lucide-react:
+        specifier: ^0.474.0
+        version: 0.474.0(react@18.3.1)
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+      zustand:
+        specifier: ^5.0.0
+        version: 5.0.14(@types/react@18.3.31)(react@18.3.1)
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.0
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: ^18.3.0
+        version: 18.3.7(@types/react@18.3.31)
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
+
+  Lead:
+    dependencies:
+      '@swarm/board':
         specifier: workspace:*
-        version: link:../HiveExtension
-      '@hiveory/hivemind':
+        version: link:../Board
+      '@swarm/pheromone':
         specifier: workspace:*
-        version: link:../HiveMind
-      '@hiveory/honeyboard':
+        version: link:../Pheromone
+      lucide-react:
+        specifier: ^0.400.0
+        version: 0.400.0(react@18.3.1)
+    devDependencies:
+      '@tauri-apps/api':
+        specifier: ^2.1.0
+        version: 2.11.1
+      '@tauri-apps/plugin-shell':
+        specifier: ^2.0.0
+        version: 2.3.5
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.0
+      '@types/react':
+        specifier: ^18.3.0
+        version: 18.3.31
+      react:
+        specifier: ^18.3.0
+        version: 18.3.1
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
+
+  Pheromone:
+    dependencies:
+      gray-matter:
+        specifier: ^4.0.3
+        version: 4.0.3
+      lucide-react:
+        specifier: ^0.400.0
+        version: 0.400.0(react@18.3.1)
+      remark:
+        specifier: ^15.0.0
+        version: 15.0.1
+      remark-parse:
+        specifier: ^11.0.0
+        version: 11.0.0
+      sql.js:
+        specifier: ^1.12.0
+        version: 1.14.1
+      unified:
+        specifier: ^11.0.0
+        version: 11.0.5
+    devDependencies:
+      '@tauri-apps/api':
+        specifier: ^2.11.1
+        version: 2.11.1
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.0
+      '@types/react':
+        specifier: ^18.3.0
+        version: 18.3.31
+      '@types/sql.js':
+        specifier: ^1.4.11
+        version: 1.4.11
+      react:
+        specifier: ^18.3.0
+        version: 18.3.1
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
+
+  Pheromone/pheromone-mcp:
+    dependencies:
+      '@swarm/lead':
         specifier: workspace:*
-        version: link:../HoneyBoard
-      '@hiveory/honeyflow':
+        version: link:../../Lead
+      '@swarm/mind':
         specifier: workspace:*
-        version: link:../HoneyFlow
-      '@hiveory/nectar':
+        version: link:../../SwarmMind
+      '@swarm/pheromone':
         specifier: workspace:*
-        version: link:../Nectar
-      '@hiveory/nectar-mcp':
+        version: link:..
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.0
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+
+  Swarm:
+    dependencies:
+      '@swarm/agents':
         specifier: workspace:*
-        version: link:../Nectar/nectar-mcp
-      '@hiveory/plugins':
+        version: link:../Agents
+      '@swarm/board':
         specifier: workspace:*
-        version: link:../HivePlugins
-      '@hiveory/queenbee':
+        version: link:../Board
+      '@swarm/extension':
         specifier: workspace:*
-        version: link:../QueenBee
-      '@hiveory/taskcomb':
+        version: link:../SwarmExtension
+      '@swarm/flow':
         specifier: workspace:*
-        version: link:../TaskComb
-      '@hiveory/worker-bees':
+        version: link:../Flow
+      '@swarm/lead':
         specifier: workspace:*
-        version: link:../WorkerBees
-      '@hiveory/workhive':
+        version: link:../Lead
+      '@swarm/mind':
         specifier: workspace:*
-        version: link:../WorkHive
+        version: link:../SwarmMind
+      '@swarm/pheromone':
+        specifier: workspace:*
+        version: link:../Pheromone
+      '@swarm/pheromone-mcp':
+        specifier: workspace:*
+        version: link:../Pheromone/pheromone-mcp
+      '@swarm/plugins':
+        specifier: workspace:*
+        version: link:../SwarmPlugins
+      '@swarm/tasks':
+        specifier: workspace:*
+        version: link:../Tasks
+      '@swarm/voice':
+        specifier: workspace:*
+        version: link:../Voice
+      '@swarm/workspace':
+        specifier: workspace:*
+        version: link:../Workspace
       '@tauri-apps/api':
         specifier: ^2.1.0
         version: 2.11.1
@@ -140,11 +322,11 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  HiveExtension:
+  SwarmExtension:
     dependencies:
-      '@hiveory/honeyboard':
+      '@swarm/board':
         specifier: workspace:*
-        version: link:../HoneyBoard
+        version: link:../Board
       '@tauri-apps/api':
         specifier: ^2.1.0
         version: 2.11.1
@@ -171,14 +353,14 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  HiveMind:
+  SwarmMind:
     dependencies:
-      '@hiveory/queenbee':
+      '@swarm/lead':
         specifier: workspace:*
-        version: link:../QueenBee
-      '@hiveory/taskcomb':
+        version: link:../Lead
+      '@swarm/tasks':
         specifier: workspace:*
-        version: link:../TaskComb
+        version: link:../Tasks
       zustand:
         specifier: ^5.0.0
         version: 5.0.14(@types/react@19.2.17)(react@19.2.7)
@@ -196,7 +378,7 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  HivePlugins:
+  SwarmPlugins:
     dependencies:
       lucide-react:
         specifier: ^0.474.0
@@ -218,162 +400,7 @@ importers:
         specifier: ^5.6.0
         version: 5.9.3
 
-  HoneyBoard:
-    dependencies:
-      lucide-react:
-        specifier: ^0.474.0
-        version: 0.474.0(react@18.3.1)
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-      simple-icons:
-        specifier: ^16.27.1
-        version: 16.27.1
-    devDependencies:
-      '@types/react':
-        specifier: ^18.3.0
-        version: 18.3.31
-      '@types/react-dom':
-        specifier: ^18.3.0
-        version: 18.3.7(@types/react@18.3.31)
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
-
-  HoneyFlow:
-    dependencies:
-      '@hiveory/honeyboard':
-        specifier: workspace:*
-        version: link:../HoneyBoard
-      lucide-react:
-        specifier: ^0.474.0
-        version: 0.474.0(react@18.3.1)
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-      zustand:
-        specifier: ^5.0.0
-        version: 5.0.14(@types/react@18.3.31)(react@18.3.1)
-    devDependencies:
-      '@types/react':
-        specifier: ^18.3.0
-        version: 18.3.31
-      '@types/react-dom':
-        specifier: ^18.3.0
-        version: 18.3.7(@types/react@18.3.31)
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.9
-        version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
-
-  Nectar:
-    dependencies:
-      gray-matter:
-        specifier: ^4.0.3
-        version: 4.0.3
-      lucide-react:
-        specifier: ^0.400.0
-        version: 0.400.0(react@18.3.1)
-      remark:
-        specifier: ^15.0.0
-        version: 15.0.1
-      remark-parse:
-        specifier: ^11.0.0
-        version: 11.0.0
-      sql.js:
-        specifier: ^1.12.0
-        version: 1.14.1
-      unified:
-        specifier: ^11.0.0
-        version: 11.0.5
-    devDependencies:
-      '@tauri-apps/api':
-        specifier: ^2.11.1
-        version: 2.11.1
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.20.0
-      '@types/react':
-        specifier: ^18.3.0
-        version: 18.3.31
-      '@types/sql.js':
-        specifier: ^1.4.11
-        version: 1.4.11
-      react:
-        specifier: ^18.3.0
-        version: 18.3.1
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.0
-        version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
-
-  Nectar/nectar-mcp:
-    dependencies:
-      '@hiveory/hivemind':
-        specifier: workspace:*
-        version: link:../../HiveMind
-      '@hiveory/nectar':
-        specifier: workspace:*
-        version: link:..
-      '@hiveory/queenbee':
-        specifier: workspace:*
-        version: link:../../QueenBee
-    devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.20.0
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-
-  QueenBee:
-    dependencies:
-      '@hiveory/honeyboard':
-        specifier: workspace:*
-        version: link:../HoneyBoard
-      '@hiveory/nectar':
-        specifier: workspace:*
-        version: link:../Nectar
-      lucide-react:
-        specifier: ^0.400.0
-        version: 0.400.0(react@18.3.1)
-    devDependencies:
-      '@tauri-apps/api':
-        specifier: ^2.1.0
-        version: 2.11.1
-      '@tauri-apps/plugin-shell':
-        specifier: ^2.0.0
-        version: 2.3.5
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.20.0
-      '@types/react':
-        specifier: ^18.3.0
-        version: 18.3.31
-      react:
-        specifier: ^18.3.0
-        version: 18.3.1
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.0
-        version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
-
-  TaskComb:
+  Tasks:
     dependencies:
       lucide-react:
         specifier: ^0.577.0
@@ -401,17 +428,42 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
 
-  WorkHive:
+  Voice:
     dependencies:
-      '@hiveory/honeyboard':
+      lucide-react:
+        specifier: ^0.400.0
+        version: 0.400.0(react@18.3.1)
+    devDependencies:
+      '@tauri-apps/api':
+        specifier: ^2.1.0
+        version: 2.11.1
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.0
+      '@types/react':
+        specifier: ^18.3.0
+        version: 18.3.31
+      react:
+        specifier: ^18.3.0
+        version: 18.3.1
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
+
+  Workspace:
+    dependencies:
+      '@swarm/agents':
         specifier: workspace:*
-        version: link:../HoneyBoard
-      '@hiveory/taskcomb':
+        version: link:../Agents
+      '@swarm/board':
         specifier: workspace:*
-        version: link:../TaskComb
-      '@hiveory/worker-bees':
+        version: link:../Board
+      '@swarm/tasks':
         specifier: workspace:*
-        version: link:../WorkerBees
+        version: link:../Tasks
       lucide-react:
         specifier: ^0.400.0
         version: 0.400.0(react@18.3.1)
@@ -440,58 +492,6 @@ importers:
       react-dom:
         specifier: ^18.3.0
         version: 18.3.1(react@18.3.1)
-      typescript:
-        specifier: ^5.6.0
-        version: 5.9.3
-      vitest:
-        specifier: ^2.1.0
-        version: 2.1.9(@types/node@22.20.0)(lightningcss@1.32.0)
-
-  WorkerBees:
-    dependencies:
-      '@hiveory/honeyboard':
-        specifier: workspace:*
-        version: link:../HoneyBoard
-      '@hiveory/nectar':
-        specifier: workspace:*
-        version: link:../Nectar
-      '@hiveory/queenbee':
-        specifier: workspace:*
-        version: link:../QueenBee
-      lucide-react:
-        specifier: ^0.400.0
-        version: 0.400.0(react@18.3.1)
-      xterm:
-        specifier: ^5.3.0
-        version: 5.3.0
-      xterm-addon-fit:
-        specifier: ^0.8.0
-        version: 0.8.0(xterm@5.3.0)
-      xterm-addon-search:
-        specifier: ^0.13.0
-        version: 0.13.0(xterm@5.3.0)
-      xterm-addon-webgl:
-        specifier: ^0.16.0
-        version: 0.16.0(xterm@5.3.0)
-      zustand:
-        specifier: ^5.0.0
-        version: 5.0.14(@types/react@18.3.31)(react@18.3.1)
-    devDependencies:
-      '@tauri-apps/api':
-        specifier: ^2.1.0
-        version: 2.11.1
-      '@tauri-apps/plugin-shell':
-        specifier: ^2.0.0
-        version: 2.3.5
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.20.0
-      '@types/react':
-        specifier: ^18.3.0
-        version: 18.3.31
-      react:
-        specifier: ^18.3.0
-        version: 18.3.1
       typescript:
         specifier: ^5.6.0
         version: 5.9.3

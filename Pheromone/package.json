@@ -1,0 +1,54 @@
+{
+  "name": "@swarm/pheromone",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./tauri": {
+      "types": "./dist/tauri/index.d.ts",
+      "import": "./dist/tauri/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "import": "./dist/ui/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "remark": "^15.0.0",
+    "remark-parse": "^11.0.0",
+    "sql.js": "^1.12.0",
+    "unified": "^11.0.0",
+    "lucide-react": "^0.400.0"
+  },
+  "peerDependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@tauri-apps/api": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@types/node": "^22.0.0",
+    "@types/sql.js": "^1.4.11",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "@types/react": "^18.3.0",
+    "react": "^18.3.0"
+  }
+}

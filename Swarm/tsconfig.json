@@ -1,0 +1,49 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "jsx": "react-jsx",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "incremental": true,
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@swarm/plugins": [
+        "../SwarmPlugins/src"
+      ],
+      "@swarm/plugins/*": [
+        "../SwarmPlugins/src/*"
+      ],
+      "@swarm/extension": [
+        "../SwarmExtension/src"
+      ],
+      "@swarm/extension/*": [
+        "../SwarmExtension/src/*"
+      ]
+    },
+    "isolatedModules": true
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "../SwarmPlugins/src/**/*",
+    "../SwarmExtension/src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "src-tauri"
+  ]
+}

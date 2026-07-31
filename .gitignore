@@ -20,9 +20,9 @@ out
 # TypeScript incremental build cache
 *.tsbuildinfo
 
-# Nectar
-.nectar/
-nectar.db
+# Pheromone
+.pheromone/
+pheromone.db
 
 # Environment
 .env

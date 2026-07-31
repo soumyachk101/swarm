@@ -1,0 +1,56 @@
+{
+  "name": "@swarm/agents",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cli-configs": {
+      "types": "./dist/cli-configs/index.d.ts",
+      "import": "./dist/cli-configs/index.js",
+      "default": "./dist/cli-configs/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "import": "./dist/ui/index.js"
+    },
+    "./storage": {
+      "types": "./dist/ui/persistStorage.d.ts",
+      "import": "./dist/ui/persistStorage.js"
+    }
+  },
+  "scripts": {
+    "dev": "tsc --watch",
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@swarm/pheromone": "workspace:*",
+    "@swarm/lead": "workspace:*",
+    "@swarm/board": "workspace:*",
+    "lucide-react": "^0.400.0",
+    "zustand": "^5.0.0",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0",
+    "xterm-addon-search": "^0.13.0",
+    "xterm-addon-webgl": "^0.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "@types/react": "^18.3.0",
+    "react": "^18.3.0",
+    "@tauri-apps/api": "^2.1.0",
+    "@tauri-apps/plugin-shell": "^2.0.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  }
+}

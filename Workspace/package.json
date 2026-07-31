@@ -1,0 +1,43 @@
+{
+  "name": "@swarm/workspace",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "import": "./dist/ui/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@swarm/tasks": "workspace:*",
+    "@swarm/board": "workspace:*",
+    "@swarm/agents": "workspace:*",
+    "lucide-react": "^0.400.0",
+    "zustand": "^5.0.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "react": "^18.3.0",
+    "@tauri-apps/api": "^2.1.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@types/react-dom": "^18.3.0",
+    "react-dom": "^18.3.0"
+  }
+}
