@@ -148,7 +148,11 @@ export const useAgentsStore = create<AgentsState>()(
         })),
       maximizedPane: null,
       setMaximizedPane: (paneId) => set({ maximizedPane: paneId }),
-      gridLayout: "cols2",
+      // "auto", not a fixed grid: the host picks the column count from how many
+      // panes are open and the board's aspect, so three panes on a wide screen
+      // get three columns instead of a 2x2 with a hole in it. A pinned "cols2"
+      // was right for two panes and wrong for every other count.
+      gridLayout: "auto",
       setGridLayout: (layout) => set({ gridLayout: layout }),
       reorderAgents: (fromIndex, toIndex) =>
         set((state) => {

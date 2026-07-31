@@ -289,7 +289,7 @@ function ExplorerPanel({
       return (
         <div key={node.path}>
           <div
-            className={`group flex items-center gap-1.5 pr-2 py-1 text-xs cursor-pointer rounded-md transition-colors ${
+            className={`group flex h-7 items-center gap-1.5 pr-2 text-xs cursor-pointer transition-colors ${
               isSelected
                 ? "bg-swarm-gold/[0.14] text-swarm-goldHi"
                 : "text-swarm-textDim hover:bg-swarm-gold/10 hover:text-swarm-text"
@@ -591,8 +591,12 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
     if (hideSleeping && !hasActiveAgent(ws, agentStatuses) && swarmsOfWs(ws.id).length === 0) return false;
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
-    return ws.name.toLowerCase().includes(q);
+    // Path too: two workspaces auto-named after sibling folders ("web", "web")
+    // are indistinguishable by name, and the folder is the only thing that tells
+    // them apart.
+    return ws.name.toLowerCase().includes(q) || ws.boundProjectPath.toLowerCase().includes(q);
   });
+  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId);
 
   const handleAdd = () => {
     setCreateDialogOpen(true);
@@ -672,7 +676,7 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
               key={tab.id}
               onClick={() => { setActiveTab(tab.id); setViewer(null); }}
               title={tab.label}
-              className={`flex items-center justify-center gap-1.5 flex-1 min-w-0 h-9 px-2 text-mini font-medium transition-colors whitespace-nowrap ${
+              className={`flex items-center justify-center gap-1.5 flex-1 min-w-0 h-8 px-2 text-mini font-medium transition-colors whitespace-nowrap ${
                 active
                   ? "text-swarm-goldHi bg-swarm-gold/[0.06] border-b-2 border-swarm-gold"
                   : "text-swarm-textMuted hover:text-swarm-textDim hover:bg-swarm-border/20"
@@ -687,18 +691,21 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
         <div className="flex items-center pr-1 shrink-0">
           <button
             onClick={onTogglePin}
-            className={`size-7 flex items-center justify-center transition-colors ${
+            className={`size-6 flex items-center justify-center rounded transition-colors ${
               pinned ? "text-swarm-goldHi/70" : "text-swarm-textMuted hover:text-swarm-textDim"
             }`}
             title={pinned ? "Unpin sidebar" : "Pin sidebar"}
+            aria-label={pinned ? "Unpin sidebar" : "Pin sidebar"}
+            aria-pressed={pinned}
           >
             {pinned ? <PinOff size={12} /> : <Pin size={12} />}
           </button>
           {onClose && (
             <button
               onClick={onClose}
-              className="size-7 flex items-center justify-center text-swarm-textMuted hover:text-swarm-text hover:bg-swarm-border/30 transition-colors"
+              className="size-6 flex items-center justify-center rounded text-swarm-textMuted hover:text-swarm-text hover:bg-swarm-border/30 transition-colors"
               title="Close sidebar"
+              aria-label="Close sidebar"
             >
               <X size={12} />
             </button>
@@ -717,110 +724,137 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
         ) : (
           /* Workspaces Tab Content */
           <>
-            {/* Filter + Add Toolbar */}
-            <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-swarm-border/30">
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setHideSleeping(!hideSleeping)}
-                  className={`size-6 rounded flex items-center justify-center transition-colors ${
-                    hideSleeping ? "text-swarm-goldHi bg-swarm-gold/10" : "text-swarm-textMuted hover:text-swarm-text hover:bg-swarm-border/40"
-                  }`}
-                  title={hideSleeping ? "Show sleeping" : "Hide sleeping"}
-                >
-                  {hideSleeping ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
-                </button>
-                <span className="text-micro font-medium text-swarm-textMuted bg-swarm-border/20 px-1.5 py-0.5 rounded-full">
-                  {visibleWorkspaces.length}
-                </span>
-              </div>
-
-              <button
-                onClick={handleAdd}
-                className="flex items-center gap-1 rounded bg-swarm-gold/10 px-2 py-0.5 text-micro font-medium text-swarm-goldHi hover:bg-swarm-gold/20 transition-colors"
-              >
-                <Plus className="size-3" /> New Workspace
-              </button>
-            </div>
-
-            {/* Workspaces Search */}
-            <div className="px-2 py-1.5">
-              <div className="flex h-7 items-center gap-1.5 rounded-md border border-swarm-border/50 glass-inset px-2 focus-within:border-swarm-gold/40 focus-within:ring-[1px] focus-within:ring-swarm-gold/20">
-                <Search className="size-3 shrink-0 text-swarm-textMuted" />
+            {/* Filter, sleeping toggle and New in ONE 32px row. They used to take
+                two rows plus a count pill for a number the section header
+                already carries — 60px of chrome above a list of two items. */}
+            <div className="flex h-8 shrink-0 items-center gap-1 border-b border-swarm-border/30 px-2">
+              <div className="flex h-[26px] min-w-0 flex-1 items-center gap-1.5 rounded-md border border-swarm-border/50 glass-inset px-1.5 focus-within:border-swarm-gold/40 focus-within:ring-[1px] focus-within:ring-swarm-gold/20">
+                <Search className="size-3.5 shrink-0 text-swarm-textMuted" />
                 <input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Filter workspaces..."
-                  className="min-w-0 flex-1 bg-transparent py-1 text-mini text-swarm-text outline-none placeholder:text-swarm-textMuted/50"
+                  placeholder="Filter"
+                  aria-label="Filter workspaces by name or folder"
+                  className="min-w-0 flex-1 bg-transparent text-mini text-swarm-text outline-none placeholder:text-swarm-textMuted/50"
                   spellCheck={false}
                 />
                 {searchQuery && (
                   <button
                     onClick={() => setSearchQuery("")}
-                    className="size-4 rounded flex items-center justify-center text-swarm-textMuted hover:text-swarm-text"
+                    title="Clear filter"
+                    aria-label="Clear filter"
+                    className="flex size-4 shrink-0 items-center justify-center rounded text-swarm-textMuted hover:text-swarm-text"
                   >
                     <X className="size-3" />
                   </button>
                 )}
               </div>
+
+              <button
+                onClick={() => setHideSleeping(!hideSleeping)}
+                aria-pressed={hideSleeping}
+                className={`flex size-[26px] shrink-0 items-center justify-center rounded-md transition-colors ${
+                  hideSleeping ? "bg-swarm-gold/10 text-swarm-goldHi" : "text-swarm-textMuted hover:bg-swarm-border/40 hover:text-swarm-text"
+                }`}
+                title={hideSleeping ? "Show sleeping workspaces" : "Hide sleeping workspaces"}
+                aria-label={hideSleeping ? "Show sleeping workspaces" : "Hide sleeping workspaces"}
+              >
+                {hideSleeping ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+              </button>
+              <button
+                onClick={handleAdd}
+                className="flex size-[26px] shrink-0 items-center justify-center rounded-md bg-swarm-gold/10 text-swarm-goldHi transition-colors hover:bg-swarm-gold/20"
+                title="New workspace"
+                aria-label="New workspace"
+              >
+                <Plus className="size-3.5" />
+              </button>
             </div>
 
-            {/* Flat agent list */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-sleek">
-              {visibleWorkspaces.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full px-4 text-center">
-                  <WorkspaceMark size={26} className="mb-2 text-swarm-textMuted/50" />
-                  <p className="text-mini text-swarm-textMuted">
-                    {searchQuery ? "No matching workspaces" : hideSleeping ? "All workspaces sleeping" : "No workspaces yet"}
-                  </p>
-                </div>
-              ) : (
-                visibleWorkspaces.map((ws) => (
-                  <div key={ws.id} className="relative" onContextMenu={(e) => handleContextMenu(e, ws)}>
-                    <ProjectGroup
-                      ws={ws}
-                      isActive={ws.id === activeWorkspaceId}
-                      hasActive={hasActiveAgent(ws, agentStatuses)}
-                      onActivate={() => { if (!ws.isDeleting) activateAndSync(ws.id); }}
-                      onMenu={(e) => openMenu(ws, e.clientX, e.clientY)}
-                      isRenaming={renamingWorkspaceId === ws.id}
-                      editValue={editValue}
-                      onEditChange={setEditValue}
-                      onCommitRename={commitRename}
-                      onCancelRename={() => { setRenamingWorkspaceId(null); setEditValue(""); }}
-                      onStartRename={() => startRename(ws.id, ws.name)}
-                    />
+            {/* The list is capped at half the rail so the active workspace's live
+                detail below always has room: with two workspaces the old layout
+                left ~800px of the sidebar doing nothing. */}
+            <div className="flex min-h-0 flex-1 flex-col">
+              <SectionLabel label="Workspaces" count={visibleWorkspaces.length} />
+              {/* Height comes from its content and is capped, rather than
+                  flex-1'd: a `flex-1 min-h-0` child of an auto-height flex
+                  column resolves to zero and the list disappears entirely. */}
+                <div className="max-h-[52%] shrink overflow-y-auto overflow-x-hidden scrollbar-sleek pb-1">
+                  {visibleWorkspaces.length === 0 ? (
+                    searchQuery ? (
+                      <EmptyNote
+                        text="Nothing matches that filter"
+                        hint="Filters match a workspace's name and its folder."
+                        actionLabel="Clear filter"
+                        onAction={() => setSearchQuery("")}
+                      />
+                    ) : hideSleeping ? (
+                      <EmptyNote
+                        text="Every workspace is asleep"
+                        hint="Sleeping means no agent is running in it."
+                        actionLabel="Show sleeping"
+                        onAction={() => setHideSleeping(false)}
+                      />
+                    ) : (
+                      <EmptyNote
+                        text="No workspaces yet"
+                        hint="A workspace is one folder its agents share."
+                        actionLabel="New workspace"
+                        onAction={handleAdd}
+                      />
+                    )
+                  ) : (
+                    visibleWorkspaces.map((ws) => (
+                      <div key={ws.id} className="relative" onContextMenu={(e) => handleContextMenu(e, ws)}>
+                        <ProjectGroup
+                          ws={ws}
+                          isActive={ws.id === activeWorkspaceId}
+                          hasActive={hasActiveAgent(ws, agentStatuses)}
+                          onActivate={() => { if (!ws.isDeleting) activateAndSync(ws.id); }}
+                          onMenu={(e) => openMenu(ws, e.clientX, e.clientY)}
+                          isRenaming={renamingWorkspaceId === ws.id}
+                          editValue={editValue}
+                          onEditChange={setEditValue}
+                          onCommitRename={commitRename}
+                          onCancelRename={() => { setRenamingWorkspaceId(null); setEditValue(""); }}
+                          onStartRename={() => startRename(ws.id, ws.name)}
+                        />
 
-                    {/* Scrim insets match the card's own mx-1.5/my-1 so it lands
-                        on the card instead of straddling its border, and the
-                        label truncates — at the 220px minimum sidebar width the
-                        pill used to push its buttons out of the rail. */}
-                    {ws.isDeleting && (
-                      <div className="absolute inset-x-1.5 inset-y-1 z-10 flex items-center justify-center rounded-xl glass backdrop-blur-[1px]">
-                        <div className="inline-flex max-w-full items-center gap-1.5 rounded-full glass-hi border border-swarm-border/60 px-2.5 py-1 text-mini font-medium text-swarm-text shadow-sm">
-                          <LoaderCircle className="size-3 shrink-0 animate-spin text-swarm-textMuted" />
-                          <span className="truncate">Deleting…</span>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); cancelDeleteWorkspace(ws.id); }}
-                            title="Cancel deletion"
-                            aria-label="Cancel deletion"
-                            className="shrink-0 text-swarm-textMuted hover:text-swarm-text transition-colors"
-                          >
-                            <X className="size-3" />
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); commitDeleteWorkspace(ws.id); }}
-                            // was hover:text-red-300 — a raw Tailwind colour that
-                            // stays the same red in all eight themes.
-                            className="shrink-0 font-semibold text-swarm-err/85 transition-colors hover:text-swarm-err"
-                          >
-                            Confirm
-                          </button>
-                        </div>
+                        {/* Covers the whole group, rows included: a scrim inset to
+                            the old card left the tree rows below it live and
+                            clickable while the workspace was being deleted. The
+                            label truncates — at the 220px minimum width the pill
+                            used to push its buttons out of the rail. */}
+                        {ws.isDeleting && (
+                          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-swarm-canvasHi/85">
+                            <div className="inline-flex max-w-full items-center gap-1.5 rounded-full glass-hi border border-swarm-border/60 px-2.5 py-1 text-mini font-medium text-swarm-text shadow-sm">
+                              <LoaderCircle className="size-3 shrink-0 animate-spin text-swarm-textMuted" />
+                              <span className="truncate">Deleting…</span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); cancelDeleteWorkspace(ws.id); }}
+                                title="Cancel deletion"
+                                aria-label="Cancel deletion"
+                                className="shrink-0 text-swarm-textMuted hover:text-swarm-text transition-colors"
+                              >
+                                <X className="size-3" />
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); commitDeleteWorkspace(ws.id); }}
+                                // was hover:text-red-300 — a raw Tailwind colour that
+                                // stays the same red in all eight themes.
+                                className="shrink-0 font-semibold text-swarm-err/85 transition-colors hover:text-swarm-err"
+                              >
+                                Confirm
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                ))
-              )}
+                    ))
+                  )}
+                </div>
+
+              <ActiveWorkspaceDetail ws={activeWorkspace} onOpenFile={setViewer} />
             </div>
           </>
         )}
@@ -831,7 +865,7 @@ export default function ADEWorktreeSidebar({ projectPath, pinned = true, onToggl
         <>
           <div className="fixed inset-0 z-[200]" onClick={() => setContextMenu(null)} />
           <div
-            className="fixed z-[201] min-w-40 py-1 rounded-lg glass-hi animate-fade-in shadow-glassHi"
+            className="fixed z-[201] min-w-40 py-1 rounded-lg glass-hi animate-fade-in"
             style={{ left: contextMenu.x, top: contextMenu.y }}
             onClick={() => setContextMenu(null)}
           >
@@ -914,10 +948,24 @@ function ProjectGroup({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [missing, setMissing] = useState(false);
 
   const trees = ws.worktrees ?? [];
   const noRepo = !ws.boundProjectPath;
   const repoName = ws.boundProjectPath ? ws.boundProjectPath.split(/[\\/]/).filter(Boolean).pop() : null;
+
+  // A workspace whose folder has been moved or deleted still renders a full set
+  // of rows, and every action on it then fails with a raw backend error. Checked
+  // only for the workspace in front of the user, so switching workspaces costs
+  // one listing rather than one per row.
+  useEffect(() => {
+    if (!isActive || !ws.boundProjectPath) { setMissing(false); return; }
+    let cancelled = false;
+    invoke("list_directory", { path: ws.boundProjectPath })
+      .then(() => { if (!cancelled) setMissing(false); })
+      .catch(() => { if (!cancelled) setMissing(true); });
+    return () => { cancelled = true; };
+  }, [isActive, ws.boundProjectPath]);
 
   // Bind a git repo folder to this project so trees can be created against it.
   const bindRepo = async () => {
@@ -961,30 +1009,37 @@ function ProjectGroup({
   };
 
   return (
-    // Selection belongs to the WORKSPACE, so ONE box wraps the whole group —
-    // the same card treatment a tree row gets, one level up. The rows inside
-    // stay unhighlighted: lighting them all up made every branch look picked.
-    <div
-      className={`mx-1.5 my-1 rounded-xl border pb-1 transition-colors ${
-        isActive
-          ? "border-swarm-gold/40 bg-swarm-gold/[0.06]"
-          : "border-swarm-border/30 hover:border-swarm-border/60"
-      }`}
-    >
-      {/* Project header — clicking anywhere on it selects the agent. */}
+    // A flat group of 28px rows, not a card: the card's border + padding spent
+    // ~20px of vertical space per workspace framing what the selected row
+    // already says, and made the sidebar read as a gallery next to the
+    // 26px chips everywhere else in the app.
+    <div className="pb-0.5">
+      {/* Workspace row — clicking anywhere on it selects the workspace. The
+          left rail marks selection with an inset shadow rather than a border,
+          so a row never changes size between states. */}
       <div
-        className="group flex cursor-pointer items-center gap-1 px-2 py-1.5"
+        className={`group flex h-7 cursor-pointer items-center gap-1.5 pl-1 pr-1 text-xs transition-colors ${
+          isActive
+            ? "bg-swarm-gold/[0.10] text-swarm-goldHi shadow-[inset_2px_0_0_rgb(var(--swarm-gold))]"
+            : "text-swarm-textDim hover:bg-swarm-border/25 hover:text-swarm-text"
+        }`}
         onClick={() => { if (!isRenaming) onActivate(); }}
         {...activatable(() => { if (!isRenaming) onActivate(); }, `Workspace ${ws.name}`)}
         aria-current={isActive ? "true" : undefined}
       >
         <button
           onClick={(e) => { e.stopPropagation(); setCollapsed((v) => !v); }}
-          className="flex size-4 shrink-0 items-center justify-center text-swarm-textMuted hover:text-swarm-text"
+          className="flex size-4 shrink-0 items-center justify-center rounded text-swarm-textMuted hover:text-swarm-text"
           title={collapsed ? "Expand" : "Collapse"}
+          aria-label={collapsed ? `Expand ${ws.name}` : `Collapse ${ws.name}`}
+          aria-expanded={!collapsed}
         >
           {collapsed ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
         </button>
+
+        {/* The workspace's own colour is the one saturated thing on the row —
+            it is how you tell two similarly-named folders apart at a glance. */}
+        <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: ws.color }} />
 
         {isRenaming ? (
           <input
@@ -993,67 +1048,98 @@ function ProjectGroup({
             onChange={(e) => onEditChange(e.target.value)}
             onBlur={onCommitRename}
             onKeyDown={(e) => { if (e.key === "Enter") onCommitRename(); if (e.key === "Escape") onCancelRename(); }}
-            className="min-w-0 flex-1 bg-transparent border-b border-swarm-gold/40 text-sm font-semibold text-swarm-text outline-none"
+            aria-label="Workspace name"
+            className="min-w-0 flex-1 border-b border-swarm-gold/40 bg-transparent text-xs font-medium text-swarm-text outline-none"
           />
         ) : (
           <span
-            className="min-w-0 flex-1 truncate text-sm font-semibold text-swarm-text"
+            className={`min-w-0 shrink truncate text-xs font-medium ${isActive ? "text-swarm-goldHi" : "text-swarm-text"}`}
             onDoubleClick={onStartRename}
             // Both name and path are unbounded user data and both get truncated,
             // so the tooltip has to carry both — the path alone left an
             // ellipsised name with no way to read it.
-            title={`${ws.name}${ws.boundProjectPath ? `\n${ws.boundProjectPath}` : "\nNo folder bound"}`}
+            title={`${ws.name}${ws.boundProjectPath ? `\n${ws.boundProjectPath}` : "\nNo folder bound"}\nDouble-click to rename`}
           >
             {ws.name}
           </span>
         )}
 
+        {/* The folder is a muted suffix on the same row: it used to be a second
+            line under every workspace, which is where half the sidebar's height
+            was going. */}
+        {!isRenaming && (
+          <span
+            className="min-w-0 flex-1 truncate text-micro text-swarm-textMuted"
+            title={ws.boundProjectPath || "No folder bound"}
+          >
+            {repoName ?? "no folder"}
+          </span>
+        )}
+
         {/* focus-within keeps these reachable when tabbing: hover-gated row
             actions are invisible and unusable without a pointer. */}
-        <div className="flex items-center gap-0.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          <button onClick={(e) => { e.stopPropagation(); onMenu(e); }} className="flex size-6 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-border/40 hover:text-swarm-text" title="Project menu" aria-label={`Menu for ${ws.name}`}>
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <button onClick={(e) => { e.stopPropagation(); onMenu(e); }} className="flex size-5 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-border/40 hover:text-swarm-text" title="Workspace menu" aria-label={`Menu for ${ws.name}`}>
             <MoreHorizontal className="size-3.5" />
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); if (noRepo) { bindRepo(); return; } setAdding((v) => !v); setError(null); }}
-            title={noRepo ? "Bind a git repo to this project" : "New tree (git worktree)"}
-            className="flex size-6 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-gold/15 hover:text-swarm-goldHi"
+            title={noRepo ? "Bind a git repo to this workspace" : "New tree (git worktree)"}
+            aria-label={noRepo ? `Bind a folder to ${ws.name}` : `New tree in ${ws.name}`}
+            className="flex size-5 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-gold/15 hover:text-swarm-goldHi"
           >
             {noRepo ? <FolderPlus className="size-3.5" /> : <Plus className="size-3.5" />}
           </button>
         </div>
       </div>
 
+      {/* A bound folder that is gone from disk: every tree action against it
+          fails with a raw git error, so say so and offer the one fix. */}
+      {missing && (
+        <div className="mx-1.5 mt-0.5 flex h-6 items-center gap-1.5 rounded-md border border-swarm-err/30 bg-swarm-err/10 px-1.5 text-micro text-swarm-err">
+          <span className="min-w-0 flex-1 truncate" title={ws.boundProjectPath}>Folder is missing from disk</span>
+          <button
+            onClick={(e) => { e.stopPropagation(); bindRepo(); }}
+            className="shrink-0 font-medium underline-offset-2 hover:underline"
+            title={`Pick a new folder for ${ws.name}`}
+          >
+            Relocate
+          </button>
+        </div>
+      )}
+
       {/* New-tree inline input */}
       {adding && (
-        <div className="mx-2 mb-1 flex items-center gap-1">
+        <div className="mx-1.5 mt-0.5 flex items-center gap-1">
           <input
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") { setAdding(false); setName(""); } }}
             placeholder="tree name (e.g. feature-x)"
-            className="min-w-0 flex-1 rounded border border-swarm-border/60 glass-inset px-2 py-1 text-mini text-swarm-text outline-none focus:border-swarm-gold/50"
+            aria-label="New tree name"
+            className="h-[26px] min-w-0 flex-1 rounded-md border border-swarm-border/60 glass-inset px-2 text-mini text-swarm-text outline-none focus:border-swarm-gold/50"
           />
-          <button onClick={submit} disabled={busy || !name.trim()} className="flex size-6 items-center justify-center rounded text-swarm-goldHi hover:bg-swarm-gold/15 disabled:opacity-40" title="Create">
+          <button onClick={submit} disabled={busy || !name.trim()} className="flex size-[26px] shrink-0 items-center justify-center rounded-md text-swarm-goldHi hover:bg-swarm-gold/15 disabled:opacity-40" title="Create tree" aria-label="Create tree">
             {busy ? <LoaderCircle className="size-3 animate-spin" /> : <Check className="size-3" />}
           </button>
-          <button onClick={() => { setAdding(false); setName(""); }} className="flex size-6 items-center justify-center rounded text-swarm-textMuted hover:text-swarm-text" title="Cancel">
+          <button onClick={() => { setAdding(false); setName(""); }} className="flex size-[26px] shrink-0 items-center justify-center rounded-md text-swarm-textMuted hover:text-swarm-text" title="Cancel" aria-label="Cancel new tree">
             <X className="size-3" />
           </button>
         </div>
       )}
 
-      {error && <div className="mx-2 mb-1 text-micro text-swarm-err break-words">{error}</div>}
+      {error && <div className="mx-2 mt-0.5 break-words text-micro text-swarm-err">{error}</div>}
 
       {/* Rows: primary (main repo) + worktrees */}
       {!collapsed && (
         <div className="flex flex-col">
           <TreeRow
             dot={hasActive ? STATUS_DOT_CLASS.running : "bg-swarm-textMuted/40"}
-            name={repoName || "main"}
+            name={repoName || "No folder"}
             badge="primary"
-            branch={repoName ? "main branch" : "no repo"}
+            branch={repoName ? "main" : "bind one to start"}
+            fullTitle={ws.boundProjectPath || "No folder bound — click to pick one"}
             onClick={noRepo ? bindRepo : onActivate}
           />
           {trees.map((t) => (
@@ -1062,6 +1148,7 @@ function ProjectGroup({
               dot="bg-swarm-textMuted/40"
               name={t.name}
               branch={t.branch}
+              fullTitle={`${t.name}\n${t.branch}\n${t.path}`}
               onClick={onActivate}
               onMerge={() => merge(t.id)}
               onRemove={() => remove(t.id)}
@@ -1074,14 +1161,16 @@ function ProjectGroup({
   );
 }
 
-/* ── a single row: status dot + name + optional badge + branch ──── */
+/* ── a single 28px row: status dot + name + optional badge + branch ──── */
 function TreeRow({
-  dot, name, badge, branch, active, onClick, onMerge, onRemove, pending,
+  dot, name, badge, branch, fullTitle, active, onClick, onMerge, onRemove, pending,
 }: {
   dot: string;
   name: string;
   badge?: string;
   branch: string;
+  /** Everything the row truncates, for the tooltip. */
+  fullTitle: string;
   active?: boolean;
   onClick?: () => void;
   onMerge?: () => void;
@@ -1091,56 +1180,182 @@ function TreeRow({
   return (
     <div
       onClick={onClick}
-      {...(onClick ? activatable(onClick, `${name} branch ${branch}`) : {})}
+      {...(onClick ? activatable(onClick, `${name}, branch ${branch}`) : {})}
       aria-current={active ? "true" : undefined}
-      className={`group/row mx-1.5 my-0.5 cursor-pointer rounded-lg border px-2.5 py-2 transition-colors ${
-        active ? "border-swarm-gold/40 bg-swarm-gold/[0.06]" : "border-swarm-border/40 hover:bg-swarm-border/20"
+      title={fullTitle}
+      // Branch as a muted suffix, not a second line: the two-line row cost 40px
+      // each and the branch is a glance, not a paragraph.
+      className={`group/row flex h-7 cursor-pointer items-center gap-1.5 pl-[26px] pr-1 text-xs transition-colors ${
+        active ? "bg-swarm-gold/[0.10] text-swarm-goldHi" : "text-swarm-textDim hover:bg-swarm-border/25 hover:text-swarm-text"
       }`}
     >
-      <div className="flex items-center gap-2">
-        <span className={`size-2 shrink-0 rounded-full ${dot}`} />
-        <span className={`min-w-0 truncate text-sm font-medium ${active ? "text-swarm-goldHi" : "text-swarm-text"}`} title={name}>{name}</span>
-        {badge && (
-          <span className="shrink-0 rounded-sm border border-swarm-border/60 bg-swarm-border/20 px-1.5 py-0 text-micro font-medium text-swarm-textDim">
-            {badge}
-          </span>
-        )}
-        {/* focus-within: the merge/remove pair was hover-only, so neither was
-            reachable from the keyboard at all. */}
-        {(onMerge || onRemove) && (
-          <div className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100">
-            {pending ? (
-              <LoaderCircle className="size-3 animate-spin text-swarm-textMuted" />
-            ) : (
-              <>
-                {onMerge && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onMerge(); }}
-                    className="flex size-5 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-gold/15 hover:text-swarm-goldHi"
-                    title="Merge branch into main + remove tree"
-                    aria-label={`Merge ${name} into main`}
-                  >
-                    <GitMerge className="size-3" />
-                  </button>
-                )}
-                {onRemove && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onRemove(); }}
-                    className="flex size-5 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-err/15 hover:text-swarm-err"
-                    title="Remove tree (discard)"
-                    aria-label={`Remove tree ${name}`}
-                  >
-                    <Trash2 className="size-3" />
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        )}
+      <span className={`size-1.5 shrink-0 rounded-full ${dot}`} />
+      <GitBranch className="size-3.5 shrink-0 text-swarm-textMuted" />
+      <span className="min-w-0 shrink truncate font-medium">{name}</span>
+      {badge && (
+        <span className="shrink-0 rounded-sm bg-swarm-border/30 px-1 text-micro font-medium text-swarm-textMuted">
+          {badge}
+        </span>
+      )}
+      <span className="min-w-0 flex-1 truncate text-micro text-swarm-textMuted">{branch}</span>
+      {/* focus-within: the merge/remove pair was hover-only, so neither was
+          reachable from the keyboard at all. */}
+      {(onMerge || onRemove) && (
+        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100">
+          {pending ? (
+            <LoaderCircle className="size-3 animate-spin text-swarm-textMuted" />
+          ) : (
+            <>
+              {onMerge && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onMerge(); }}
+                  className="flex size-5 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-gold/15 hover:text-swarm-goldHi"
+                  title="Merge branch into main + remove tree"
+                  aria-label={`Merge ${name} into main`}
+                >
+                  <GitMerge className="size-3" />
+                </button>
+              )}
+              {onRemove && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRemove(); }}
+                  className="flex size-5 items-center justify-center rounded text-swarm-textMuted hover:bg-swarm-err/15 hover:text-swarm-err"
+                  title="Remove tree (discard)"
+                  aria-label={`Remove tree ${name}`}
+                >
+                  <Trash2 className="size-3" />
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── shared sidebar furniture ───────────────────────────────────── */
+
+/** 10px uppercase heading — the one section label style in this rail. */
+function SectionLabel({ label, count }: { label: string; count?: number }) {
+  return (
+    <div className="flex h-6 shrink-0 items-center gap-1.5 px-2 text-micro font-medium uppercase tracking-[0.06em] text-swarm-textMuted">
+      <span className="truncate">{label}</span>
+      {count !== undefined && <span className="tabular-nums text-swarm-textMuted/60">{count}</span>}
+    </div>
+  );
+}
+
+/** An empty region has to say what happened and offer the way out of it. */
+function EmptyNote({
+  text, hint, actionLabel, onAction,
+}: {
+  text: string;
+  hint?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1 px-4 py-6 text-center">
+      <WorkspaceMark size={20} className="mb-0.5 text-swarm-textMuted/50" />
+      <p className="text-mini text-swarm-textDim">{text}</p>
+      {hint && <p className="text-micro text-swarm-textMuted/70">{hint}</p>}
+      {actionLabel && onAction && (
+        <button
+          onClick={onAction}
+          className="mt-1 rounded-md bg-swarm-gold/10 px-2 py-1 text-micro font-medium text-swarm-goldHi transition-colors hover:bg-swarm-gold/20"
+        >
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Stable empty array: `openFiles[path] ?? []` produces a new reference on every
+// read, which useSyncExternalStore treats as a changed snapshot and re-renders
+// on a loop.
+const NO_FILES: string[] = [];
+
+/**
+ * The lower half of the rail: what the active workspace actually contains right
+ * now — its agents and the files opened out of it. Both come from stores the app
+ * already keeps; nothing here is new state.
+ */
+function ActiveWorkspaceDetail({
+  ws, onOpenFile,
+}: {
+  ws?: Workspace;
+  onOpenFile: (t: ViewerTarget) => void;
+}) {
+  const agents = useAgentsStore((s) => s.agents);
+  const statuses = useAgentsStore((s) => s.agentStatuses);
+  const openFiles = useProjectStore((s) => s.openFiles);
+
+  if (!ws) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col justify-center border-t border-swarm-border/40">
+        <EmptyNote text="No workspace selected" hint="Pick one above to see its agents and files." />
       </div>
-      <div className="mt-0.5 flex min-w-0 items-center gap-1 pl-4 text-mini text-swarm-textMuted">
-        <GitBranch className="size-2.5 shrink-0" />
-        <span className="truncate" title={branch}>{branch}</span>
+    );
+  }
+
+  const mine = agents.filter((a) => a.workspaceId === ws.id);
+  const recent = (ws.boundProjectPath ? openFiles[ws.boundProjectPath] : undefined) ?? NO_FILES;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col border-t border-swarm-border/40">
+      <SectionLabel label="Agents" count={mine.length} />
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden scrollbar-sleek pb-1">
+        {mine.length === 0 ? (
+          <p className="px-2 py-1 text-micro text-swarm-textMuted/70">
+            No agents in {ws.name} yet — add one from the board.
+          </p>
+        ) : (
+          mine.map((a) => {
+            const status = statuses[a.id] ?? "idle";
+            const label = a.customName || a.cliName;
+            return (
+              <div
+                key={a.id}
+                className="flex h-7 items-center gap-1.5 px-2 text-xs text-swarm-textDim"
+                title={`${label}\n${a.cliName}${a.model ? ` · ${a.model}` : ""}\n${status}`}
+              >
+                <span className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT_CLASS[status]}`} />
+                <span className="min-w-0 shrink truncate">{label}</span>
+                {a.isLead && (
+                  <span className="shrink-0 rounded-sm bg-swarm-gold/15 px-1 text-micro font-medium text-swarm-goldHi">lead</span>
+                )}
+                <span className="ml-auto shrink-0 text-micro text-swarm-textMuted/70">{status}</span>
+              </div>
+            );
+          })
+        )}
+
+        {recent.length > 0 && (
+          <>
+            <SectionLabel label="Recent files" count={recent.length} />
+            {/* Capped: this is a glance at what you last looked at, and the
+                store keeps up to 40. */}
+            {recent.slice(0, 12).map((path) => {
+              const fileName = path.split(/[\\/]/).pop() || path;
+              const { Icon, className } = getFileIcon(fileName);
+              const open = () => onOpenFile({ path, projectPath: ws.boundProjectPath });
+              return (
+                <div
+                  key={path}
+                  onClick={open}
+                  {...activatable(open, `Open ${fileName}`)}
+                  title={path}
+                  className="flex h-7 cursor-pointer items-center gap-1.5 px-2 text-xs text-swarm-textDim transition-colors hover:bg-swarm-border/25 hover:text-swarm-text"
+                >
+                  <Icon className={`size-3.5 shrink-0 ${className}`} />
+                  <span className="min-w-0 truncate">{fileName}</span>
+                </div>
+              );
+            })}
+          </>
+        )}
       </div>
     </div>
   );

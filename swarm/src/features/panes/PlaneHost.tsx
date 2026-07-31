@@ -32,9 +32,18 @@ import { extensionAgentProps } from "@/host/extensionAgent";
 import {
   usePlaneStore, planeFor, paneInPlane, type PlaneKind, type PlaneDef, type BoardView,
 } from "./planeStore";
-import { GRID_PRESETS, presetFor, PresetThumb } from "./gridPresets";
+import { GRID_PRESETS, presetFor, PresetThumb, autoCols } from "./gridPresets";
 
 const INTERACTIVE = "button, input, select, textarea, a, [contenteditable], [role='button']";
+
+/* Grid metrics. GAP is the density scale's 8px gutter and must stay in step
+   with the `gap-2`/`p-2` on the grid and its scroll box — it is the number the
+   row-height maths subtracts, so a mismatch leaves a dead strip at the bottom.
+   MIN_ROW is the row floor: under it a pane is mostly header, a terminal shows
+   single-digit line counts and the chrome reads as broken. Better to scroll. */
+const GAP = 8;
+const PEEK = 34;   // sliver of the next row's titlebar left showing when panes overflow
+const MIN_ROW = 180;
 
 const PLANE_ICON: Record<PlaneKind, React.ComponentType<{ className?: string }>> = {
   board: BoardLogo,
@@ -119,6 +128,27 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
   const [showAdd, setShowAdd] = useState(false);
   const [shells, setShells] = useState<{ id: string; label: string; command: string }[]>([]);
   const [focusedPane, setFocusedPane] = useState<string | null>(null);
+
+  // The plane body's shape, for the Auto layout. Bucketed, not measured in
+  // pixels: a window drag fires ResizeObserver on every frame and each state
+  // write re-renders every pane on the board, so only a change that would
+  // actually pick a different column or row count is allowed through.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [fit, setFit] = useState({ aspect: 1.8, rows: 2 });
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => {
+      const { width, height } = e.contentRect;
+      if (!width || !height) return;
+      const next = { aspect: width / height, rows: Math.max(1, Math.floor(height / MIN_ROW)) };
+      setFit((cur) =>
+        cur.rows === next.rows && Math.abs(cur.aspect - next.aspect) < 0.05 ? cur : next,
+      );
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // ── pointer-based pane drag (HTML5 DnD can't cross terminal/webview panes) ──
   const rootRef = useRef<HTMLDivElement>(null);
@@ -348,19 +378,13 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
      Row height is expressed in cqh (1% of the plane body's height — the body
      is a size container), so it's exact in both docked and fullscreen modes
      without measuring anything. */
-  const GAP = 8;      // grid gap (gap-2)
-  const PEEK = 34;    // peeked titlebar height when scrolling
-  // Row floor. Under this a pane is mostly header: a terminal shows single
-  // digit lines and the chrome reads as broken. Better to scroll than to
-  // render something unusable.
-  const MIN_ROW = 180;
   const count = items.length;
 
   // The plane header's height, in one place. The board plane's header is the
-  // BoardStrip (`h-11`); every other plane uses the `h-9` toolbar rendered
-  // below. Anything that must sit flush under the header measures from here
-  // rather than carrying its own copy of the number.
-  const headerH = active === "board" ? 44 : 36;
+  // BoardStrip (`h-11`, in @swarm/board); every other plane uses the `h-8`
+  // toolbar rendered below. Anything that must sit flush under the header
+  // measures from here rather than carrying its own copy of the number.
+  const headerH = active === "board" ? 44 : 32;
 
   /**
    * One pane, whichever view is showing. The grid wraps this in a slot and the
@@ -424,8 +448,10 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
     );
   };
   const preset = presetFor(gridLayout);
+  const isAuto = !!preset?.auto;
   const colsFor = (): number => {
     if (count <= 1) return 1;
+    if (isAuto) return Math.min(count, autoCols(count, fit.aspect));
     if (preset) return Math.max(1, Math.min(preset.cols, count));
     switch (gridLayout) {
       case "rows": return 1;
@@ -437,7 +463,9 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
       case "master": return 2;
       case "grid": return Math.ceil(Math.sqrt(count));
       case 1: case 2: case 3: case 4: return Math.min(gridLayout, count);
-      default: return count <= 2 ? 2 : count <= 6 ? 3 : 4;
+      // Anything unrecognised (a layout persisted by an older build) gets the
+      // Auto shape rather than a second, differently-tuned guess.
+      default: return Math.min(count, autoCols(count, fit.aspect));
     }
   };
   const isMaster = gridLayout === "master" && !maximizedPane && count > 1;
@@ -458,11 +486,18 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
   // Never reserve more rows than the layout fills. A 2×2 preset holding two
   // panes used to keep the second row's height back and leave a dead band
   // under them; the same happened to every grid preset as panes were closed.
-  // Legacy (non-preset) layouts fit all their rows on one screen — they had
-  // fixed 240px rows that ignored the plane's height entirely.
   const rowsPerPage = Math.min(
-    focusMode ? 2 : preset ? preset.rows ?? 1 : gridLayout === "rows" ? 1 : totalRows,
     totalRows,
+    focusMode ? 2
+      : isAuto ? fit.rows
+      : preset ? preset.rows ?? 1
+      : gridLayout === "rows" ? 1
+      // Master packs every row into one screen by design (see gridStyle), so it
+      // never overflows. The other legacy layouts used to claim a screen row per
+      // pane row, and then the MIN_ROW floor pushed the surplus off-screen with
+      // no peek sliver and no "N more" pill — cap them at what actually fits.
+      : isMaster ? totalRows
+      : fit.rows,
   );
   const overflow = totalRows > rowsPerPage;
   const subtract = (overflow ? PEEK : 0) + GAP * (rowsPerPage - 1);
@@ -544,8 +579,8 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
           strip with it, and what keeps the strip attached to its panes when
           the plane goes fullscreen.
 
-          relative z-30: panes use backdrop-blur (own stacking contexts), so
-          without this the add dropdown paints *behind* them. */}
+          relative z-30: the panes below are positioned and come later in the
+          DOM, so without this the add dropdown paints *behind* them. */}
       {active === "board" ? (
         <div className="relative z-30 shrink-0">
           <BoardStrip
@@ -584,7 +619,7 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
           )}
         </div>
       ) : (
-        <div className="relative z-30 flex h-9 shrink-0 items-center gap-2 border-b border-swarm-border/50 glass-toolbar px-2.5">
+        <div className="relative z-30 flex h-8 shrink-0 items-center gap-2 border-b border-swarm-border/50 glass-toolbar px-2">
           {fullscreen && <SwarmLogo size={20} className="shrink-0" />}
           <Icon className="size-3.5 shrink-0 text-swarm-gold" />
           <span className="text-xs font-semibold text-swarm-text">{plane.label}</span>
@@ -632,13 +667,20 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
           works over terminal/webview panes and in fullscreen. */}
       {drag && (
         <div className="pointer-events-none absolute inset-x-0 z-[60] flex justify-center px-4 pt-3" style={{ top: headerH }}>
-          <div className="flex items-end gap-2 rounded-2xl border border-swarm-border/60 glass-hi px-4 py-3 shadow-2xl shadow-black/50 backdrop-blur-md animate-fade-in">
+          {/* No backdrop-blur utility here: `.glass-hi` already owns the blur
+              for floating surfaces, and a utility would silently replace it
+              with a weaker one — the picker would blur less than the menus. */}
+          <div className="flex items-end gap-2 rounded-2xl border border-swarm-border/60 glass-hi px-4 py-3 shadow-2xl shadow-black/50 animate-fade-in">
             {/* Only offer presets the current pane count can actually fill:
                 a column preset needs its full column count, a grid preset needs
                 at least one pane on its second row (a 2×2 holding two panes is
-                just "2 columns"), and Focus needs a spotlight plus one other. */}
-            {GRID_PRESETS.filter((p) => count >= (p.focus ? 2 : p.rows ? p.cols + 1 : p.cols)).map((p) => {
+                just "2 columns"), and Focus needs a spotlight plus one other.
+                Auto fits any count — that is the whole point of it. */}
+            {GRID_PRESETS.filter((p) => count >= (p.auto ? 1 : p.focus ? 2 : p.rows ? p.cols + 1 : p.cols)).map((p) => {
               const hot = over?.kind === "snap" && over.id === p.id;
+              // Auto's tile previews the shape it would pick right now, so it
+              // isn't the one tile in the picker that doesn't say what it does.
+              const ac = p.auto ? Math.min(count, autoCols(count, fit.aspect)) : p.cols;
               return (
                 <div
                   key={p.id}
@@ -647,7 +689,12 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
                     hot ? "bg-swarm-gold/20 scale-105" : ""
                   }`}
                 >
-                  <PresetThumb cols={p.cols} rows={p.rows ?? 1} focus={p.focus} focusWide={p.id === "focus4"} active={hot || gridLayout === p.id} size={46} />
+                  <PresetThumb
+                    cols={ac}
+                    rows={p.auto ? Math.min(fit.rows, Math.ceil(count / ac)) : p.rows ?? 1}
+                    focus={p.focus} focusWide={p.id === "focus4"}
+                    active={hot || gridLayout === p.id} size={46}
+                  />
                   <span className={`text-micro font-medium ${hot ? "text-swarm-goldHi" : "text-swarm-textMuted"}`}>{p.label}</span>
                 </div>
               );
@@ -668,6 +715,7 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
           with every node absolutely positioned the canvas then measured zero
           tall and rendered nothing. */}
       <div
+        ref={bodyRef}
         style={canvasView ? undefined : { containerType: "size" }}
         className={
           canvasView
@@ -711,10 +759,11 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
                      animated width/height, so every preset switch dragged each
                      terminal through 300ms of intermediate sizes — a reflow storm
                      for the pane ResizeObservers and visible reflowing text.
-                     The border is 2px on all four sides from the start (three of
-                     them transparent): `.pane-active` widens every side to 2px,
-                     so a pane that only had a top border shoved its own contents
-                     2px left and up the instant you focused it. */
+                     One 1px border on all four sides, and nothing that ever
+                     changes its width: `.pane-active` is an outline, painted
+                     outside layout. Anything that varies border-width by state
+                     resizes the pane's content box and makes the xterm inside
+                     re-fit its whole character grid on every focus change. */
                   /* No entrance animation here, deliberately. A pane hosts an
                      xterm canvas that measures this element to derive its cell
                      grid, and it does that on mount — i.e. mid-animation. A
@@ -727,7 +776,7 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
                   className={`flex flex-col overflow-hidden glass glass-lift ${
                     shouldHide
                       ? "hidden"
-                      : "relative h-full rounded-lg border-2 border-transparent transition-[box-shadow,border-color,opacity] duration-200"
+                      : "relative h-full rounded-lg border border-swarm-border transition-[box-shadow,border-color,opacity] duration-200"
                   } ${drag?.id === swarm.id ? "opacity-30" : ""} ${
                     over?.kind === "pane" && over.id === swarm.id ? "ring-2 ring-swarm-gold/70" : ""
                   } ${focusedPane === swarm.id && !isThisMax ? "pane-active" : ""}`}
@@ -735,11 +784,13 @@ export default function PlaneHost({ workingDir, leading, reserveRight }: Props) 
                     shouldHide
                       ? undefined
                       : {
-                          // Same top edge for every class — class identity is the
-                          // strip/header dot only. Accent only while a drop targets it.
+                          // Same edge for every class — class identity is the
+                          // strip/header dot only. Accent only while a drop
+                          // targets it; otherwise leave the border to `.glass`,
+                          // which is where the elevation ladder is defined.
                           borderTopColor: over?.kind === "pane" && over.id === swarm.id
                             ? themeForKind(swarm.kind).accent
-                            : "rgb(var(--swarm-border))",
+                            : undefined,
                           ...place.get(swarm.id),
                         }
                   }

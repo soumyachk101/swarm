@@ -63,13 +63,26 @@ const config: Config = {
         xl: ['19px', { lineHeight: '26px', letterSpacing: '-0.01em' }],
         '2xl': ['23px', { lineHeight: '30px', letterSpacing: '-0.015em' }],
       },
+      // Density scale: 28px rows = h-7, 32px toolbars = h-8, both already in
+      // Tailwind's default scale. Only the 26px chip has no default step, so
+      // that is the one value added here — as spacing, not height, so min-h/py
+      // land on the same number.
+      spacing: {
+        '6.5': '1.625rem',
+      },
       borderRadius: {
         xl: '0.875rem',
         '2xl': '1.125rem',
       },
-      backdropBlur: {
-        glass: '14px',
-        glassHi: '22px',
+      // The one motion scale, mirroring the --swarm-t-* tokens in globals.css
+      // so a hover written in JSX and the elevation change it triggers in CSS
+      // run at the same speed instead of reading as two separate events.
+      transitionDuration: {
+        fast: 'var(--swarm-t-fast)',
+        base: 'var(--swarm-t-base)',
+      },
+      transitionTimingFunction: {
+        swarm: 'var(--swarm-ease)',
       },
       boxShadow: {
         // soft, warm, low-opacity depth

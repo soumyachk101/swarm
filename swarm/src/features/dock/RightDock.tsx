@@ -323,15 +323,29 @@ const TABS: { id: DockTab; label: string; icon: React.ComponentType<{ className?
 
 const RIGHT_DOCK_MIN = 260;
 const RIGHT_DOCK_MAX = 520;
+/** Folded width: the tab icons and nothing else. */
+const RAIL_WIDTH = 44;
 const WIDTH_KEY = "swarm_right_dock_width";
 const clampWidth = (w: number) => Math.max(RIGHT_DOCK_MIN, Math.min(RIGHT_DOCK_MAX, w));
 
 export default function ADERightDock({ projectPath, onClose }: Props) {
   const [activeTab, setActiveTab] = useState<DockTab>("chat");
+  // Folded to the icon rail. Only the tab strip renders; nothing unmounts, so
+  // the Lead's CLI keeps running behind it exactly as it does on a tab switch.
+  const [collapsed, setCollapsed] = useState(false);
   // A fresh promotion should show the new Lead, not whatever tab was open.
   const leadId = useAgentsStore((s) => s.agents.find((b) => b.isLead)?.id ?? null);
   useEffect(() => {
-    if (leadId) setActiveTab("chat");
+    if (leadId) {
+      setActiveTab("chat");
+      setCollapsed(false);
+      return;
+    }
+    // No Lead means the default tab has only a placeholder to show, and holding
+    // ~340px of window open for it is the single biggest waste on screen. Keyed
+    // off leadId alone so it never re-folds a panel the user just opened by
+    // clicking the Lead icon in the rail.
+    setCollapsed((c) => c || activeTab === "chat");
   }, [leadId]);
   const [viewer, setViewer] = useState<ViewerTarget | null>(null);
   // Switching projects leaves the viewer pointing at a file from the old one,
@@ -392,15 +406,32 @@ export default function ADERightDock({ projectPath, onClose }: Props) {
       ref={dockRef}
       className={
         isExpanded
-          ? "fixed inset-0 z-[140] flex flex-col glass-hi shadow-2xl animate-fade-in p-2"
+          ? // Stops below the window controls instead of at inset-0: this panel
+            // sits at z-140, the controls at z-60, so a true fullscreen sheet
+            // covered minimize/close and the drag region with no way to move or
+            // close the window until GlassChat was un-expanded.
+            "fixed bottom-0 left-0 right-0 top-11 z-[140] flex flex-col glass-hi shadow-2xl animate-fade-in p-2"
           : "relative h-full flex flex-col glass-rail border-l border-swarm-border/50"
       }
       // min(…, 45vw) so a half-screen laptop window can't end up with a 520px
       // dock and a sliver of board next to it; the min-width is still the floor.
-      style={isExpanded ? {} : { width: `min(${dockWidth}px, 45vw)`, minWidth: RIGHT_DOCK_MIN }}
+      style={
+        isExpanded
+          ? {}
+          : collapsed
+          ? { width: RAIL_WIDTH, minWidth: RAIL_WIDTH }
+          : { width: `min(${dockWidth}px, 45vw)`, minWidth: RIGHT_DOCK_MIN }
+      }
     >
-      {/* Dock header with sub-tabs */}
-      <div className="flex items-center border-b border-swarm-border/40 shrink-0">
+      {/* Dock header with sub-tabs — a column of icons once folded, so every
+          tab stays visible and one click brings its panel back. */}
+      <div
+        className={`shrink-0 flex ${
+          collapsed
+            ? "flex-col items-stretch gap-0.5 py-1"
+            : "items-center border-b border-swarm-border/40"
+        }`}
+      >
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const active = activeTab === tab.id;
@@ -408,6 +439,11 @@ export default function ADERightDock({ projectPath, onClose }: Props) {
             <button
               key={tab.id}
               onClick={() => {
+                // Clicking the tab that is already open folds the dock away —
+                // the same control both opens and closes it, so the rail is
+                // never a one-way trip.
+                if (collapsed) setCollapsed(false);
+                else if (active) setCollapsed(true);
                 setActiveTab(tab.id);
                 setViewer(null);
                 // Only GlassChat has an expand control. Leaving isExpanded on
@@ -415,38 +451,46 @@ export default function ADERightDock({ projectPath, onClose }: Props) {
                 // way back out.
                 if (tab.id !== "glasschat") setIsExpanded(false);
               }}
-              title={tab.label}
-              // Inactive tabs carry a transparent bottom border of the same
-              // width: without it the active tab's 2px border eats into the
-              // fixed h-9 box and the icon jumps a pixel as you switch tabs.
-              className={`flex items-center justify-center gap-1.5 flex-1 min-w-0 h-9 px-2 text-mini font-medium border-b-2 transition-colors whitespace-nowrap ${
+              title={collapsed ? `${tab.label} — expand panel` : tab.label}
+              aria-label={tab.label}
+              aria-expanded={!collapsed && active}
+              // Inactive tabs carry a transparent border of the same width:
+              // without it the active tab's 2px border eats into the fixed h-9
+              // box and the icon jumps a pixel as you switch tabs.
+              className={`flex items-center justify-center gap-1.5 min-w-0 h-9 text-mini font-medium transition-colors whitespace-nowrap ${
+                collapsed ? "border-l-2" : "flex-1 px-2 border-b-2"
+              } ${
                 active
                   ? "text-swarm-goldHi bg-swarm-gold/[0.06] border-swarm-gold"
                   : "border-transparent text-swarm-textMuted hover:text-swarm-textDim hover:bg-swarm-border/20"
               }`}
             >
               <Icon className="size-3.5 shrink-0" />
-              {!compact && <span className="truncate">{tab.label}</span>}
+              {!compact && !collapsed && <span className="truncate">{tab.label}</span>}
             </button>
           );
         })}
 
-        {activeTab === "chat" && (
+        {activeTab === "chat" && !collapsed && (
           <div className="mr-1 flex shrink-0 items-center">
             <LeadModeSelect />
           </div>
         )}
         <button
           onClick={onClose}
-          className="size-8 flex items-center justify-center text-swarm-textMuted hover:text-swarm-text hover:bg-swarm-border/30 transition-colors shrink-0"
+          className={`h-8 flex items-center justify-center text-swarm-textMuted hover:text-swarm-text hover:bg-swarm-border/30 transition-colors shrink-0 ${
+            collapsed ? "w-full" : "w-8"
+          }`}
           title="Close panel"
+          aria-label="Close panel"
         >
           <X className="size-3.5" />
         </button>
       </div>
 
-      {/* Resize handle */}
-      {!isExpanded && (
+      {/* Resize handle. Nothing to drag while folded: the rail is a fixed
+          width and the handle would sit on the board's right edge for nothing. */}
+      {!isExpanded && !collapsed && (
         <div
           className="absolute -left-2 top-0 z-40 flex h-full w-4 cursor-col-resize items-stretch justify-center group select-none"
           onPointerDown={handleResizeStart}
@@ -456,8 +500,9 @@ export default function ADERightDock({ projectPath, onClose }: Props) {
         </div>
       )}
 
-      {/* Tab content */}
-      <div className="flex-1 min-h-0 overflow-hidden">
+      {/* Tab content. Hidden, never unmounted, while folded — for the same
+          reason the Lead tab is: a live CLI runs in here. */}
+      <div className={`flex-1 min-h-0 overflow-hidden ${collapsed ? "hidden" : ""}`}>
         {/* Hidden rather than unmounted: the Lead tab hosts a live CLI, and
             unmounting it would kill and respawn that agent on every tab switch. */}
         <div className={`h-full ${activeTab === "chat" ? "" : "hidden"}`}>

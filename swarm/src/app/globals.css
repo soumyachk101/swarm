@@ -26,46 +26,59 @@
 }
 
 /* Design tokens — RGB channel triplets so Tailwind opacity modifiers work.
-   ThemePicker swaps these via documentElement; Swarm (default) matches current look. */
-:root,
-[data-theme="swarm"] {
+   applyTheme() overwrites all of these inline on <html>; these values are the
+   pre-JS paint, so they must match DEFAULT_THEME_ID (graphite) or the window
+   flashes one palette and settles on another. The old `[data-theme="swarm"]`
+   twin of this block was a rename leftover — no theme has that id any more, so
+   it matched nothing. */
+:root {
   --font-sans: 'Geist', sans-serif;
   --font-mono: 'Geist Mono', monospace;
-  --swarm-canvas: 20 16 14;
-  --swarm-canvas-hi: 28 22 19;
-  --swarm-surface: 36 31 28;
-  --swarm-surface-hi: 43 36 32;
-  --swarm-border: 61 46 31;
-  --swarm-border-hi: 74 56 38;
-  --swarm-gold: 201 162 39;
-  --swarm-gold-hi: 212 184 74;
-  --swarm-gold-dim: 154 114 6;
-  --swarm-honey: 232 197 71;
-  --swarm-amber: 184 134 11;
-  --swarm-text: 245 240 230;
-  --swarm-text-dim: 201 184 150;
-  --swarm-text-muted: 138 123 92;
-  --swarm-ok: 143 174 122;
-  --swarm-warn: 208 164 63;
-  --swarm-err: 198 107 90;
+  --swarm-canvas: 14 16 19;
+  --swarm-canvas-hi: 20 23 28;
+  --swarm-surface: 25 29 35;
+  --swarm-surface-hi: 33 39 48;
+  --swarm-border: 44 51 61;
+  --swarm-border-hi: 97 105 114;
+  --swarm-gold: 224 168 58;
+  --swarm-gold-hi: 240 195 104;
+  --swarm-gold-dim: 169 122 37;
+  --swarm-honey: 240 195 104;
+  --swarm-amber: 208 146 47;
+  --swarm-text: 238 241 245;
+  --swarm-text-dim: 179 189 201;
+  --swarm-text-muted: 125 136 150;
+  --swarm-ok: 79 178 134;
+  --swarm-warn: 216 161 60;
+  --swarm-err: 224 100 94;
   /* Hex mirrors (JS/SVG); applyTheme keeps these in sync with channel tokens */
-  --swarm-canvas-hex: #14100e;
-  --swarm-canvas-hi-hex: #1c1613;
-  --swarm-surface-hex: #241f1c;
-  --swarm-surface-hi-hex: #2b2420;
-  --swarm-border-hex: #3d2e1f;
-  --swarm-border-hi-hex: #4a3826;
-  --swarm-gold-hex: #c9a227;
-  --swarm-gold-hi-hex: #d4b84a;
-  --swarm-gold-dim-hex: #9a7206;
-  --swarm-honey-hex: #e8c547;
-  --swarm-amber-hex: #b8860b;
-  --swarm-text-hex: #f5f0e6;
-  --swarm-text-dim-hex: #c9b896;
-  --swarm-text-muted-hex: #8a7b5c;
-  --swarm-ok-hex: #8fae7a;
-  --swarm-warn-hex: #d0a43f;
-  --swarm-err-hex: #c66b5a;
+  --swarm-canvas-hex: #0e1013;
+  --swarm-canvas-hi-hex: #14171c;
+  --swarm-surface-hex: #191d23;
+  --swarm-surface-hi-hex: #212730;
+  --swarm-border-hex: #2c333d;
+  --swarm-border-hi-hex: #616972;
+  --swarm-gold-hex: #e0a83a;
+  --swarm-gold-hi-hex: #f0c368;
+  --swarm-gold-dim-hex: #a97a25;
+  --swarm-honey-hex: #f0c368;
+  --swarm-amber-hex: #d0922f;
+  --swarm-text-hex: #eef1f5;
+  --swarm-text-dim-hex: #b3bdc9;
+  --swarm-text-muted-hex: #7d8896;
+  --swarm-ok-hex: #4fb286;
+  --swarm-warn-hex: #d8a13c;
+  --swarm-err-hex: #e0645e;
+}
+
+/* Motion scale. Two durations and one curve for the whole app — the file used
+   to carry 0.14s/0.24s/5000s picked per rule, so a hover and the elevation
+   change it triggered ran at different speeds and read as two events. These are
+   NOT theme tokens; applyTheme never touches them. */
+:root {
+  --swarm-ease: cubic-bezier(0.2, 0, 0, 1);
+  --swarm-t-fast: 90ms;  /* hover, press, colour-only feedback */
+  --swarm-t-base: 150ms; /* elevation and state changes */
 }
 
 html,
@@ -100,7 +113,7 @@ body {
 }
 
 /* Selection had no theme colour, so every surface fell back to the platform
-   blue — the one non-themed pixel in an eight-theme app. */
+   blue — the one non-themed pixel in the app. */
 ::selection {
   background: rgb(var(--swarm-gold) / 0.3);
   color: rgb(var(--swarm-text));
@@ -153,12 +166,10 @@ html {
 input, select, textarea {
   color: rgb(var(--swarm-text)) !important;
   caret-color: rgb(var(--swarm-gold));
-  /* The UA paints form fields on an opaque white `field` background. Our glass
-     classes only ever set a SEMI-TRANSPARENT background-image, which is right
-     for a <div> (the dark parent shows through) but on an <input> composites
-     that dark gradient over white — the field turns pale, and the light text
-     forced above it becomes invisible. Clearing the UA colour makes an input
-     layer exactly like every other glass surface. */
+  /* The UA paints form fields on an opaque white `field` background, which the
+     light text forced above becomes invisible against. Clearing it lets a bare
+     input sit on its parent's surface; an input carrying `.glass-inset` gets
+     that class's own opaque fill instead (class beats type selector). */
   background-color: transparent;
 }
 
@@ -167,7 +178,7 @@ input:-webkit-autofill:hover,
 input:-webkit-autofill:focus,
 input:-webkit-autofill:active {
   -webkit-text-fill-color: rgb(var(--swarm-text)) !important;
-  -webkit-box-shadow: 0 0 0px 1000px rgb(var(--swarm-canvas-hi)) inset !important;
+  -webkit-box-shadow: 0 0 0px 1000px rgb(var(--swarm-canvas)) inset !important;
   transition: background-color 5000s ease-in-out 0s;
 }
 
@@ -195,181 +206,118 @@ select:focus {
   outline: none;
 }
 
-/* Motion is decoration here, never information. Strip it on request. */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-}
-
-/* Blur is expensive and, for some viewers, unreadable. Fall back to solid.
-   The gradients go too: a tint gradient over an opaque fill just looks dirty. */
-@media (prefers-reduced-transparency: reduce) {
-  .glass, .glass-hi, .glass-toolbar, .glass-rail, .glass-inset, .glass-body {
-    backdrop-filter: none !important;
-    -webkit-backdrop-filter: none !important;
-    background-image: none !important;
-  }
-  .glass, .glass-toolbar, .glass-rail { background-color: rgb(var(--swarm-surface)) !important; }
-  .glass-hi { background-color: rgb(var(--swarm-surface-hi)) !important; }
-  .glass-inset { background-color: rgb(var(--swarm-canvas)) !important; }
-  .glass-body { background-color: rgb(var(--swarm-canvas-hi)) !important; }
-  .glass-sheen::before { display: none; }
-}
-
 @layer components {
-  /* Themed canvas — the backdrop everything floats over */
+  /*
+   * THE ELEVATION LADDER
+   *
+   * canvas -> canvas-hi -> surface -> surface-hi, four token values that are
+   * genuinely four different greys. They used to be painted at 0.5-0.86 alpha
+   * over a dark floor, which composited all four toward the same rendered
+   * value — the translucency, not a missing shadow, is what made the whole app
+   * read as one flat sheet. So the ladder is opaque now, and blur survives on
+   * exactly one class (.glass-hi), the only tier that actually overlaps other
+   * content. Blur therefore means "this floats above you" instead of being
+   * ambient noise, and a grid of panes stopped stacking four backdrop-filters
+   * per frame for a result nobody could see.
+   *
+   * Every value is a --swarm-* token: a hardcoded hex here breaks two of the
+   * three themes.
+   */
+
+  /* Floor. The darkest thing on screen — deliberately no canvas-hi wash at the
+     top any more, because that is the value .glass uses and a floor that
+     matches the panes is the flatness this pass exists to fix. */
   .app-canvas {
     background-color: rgb(var(--swarm-canvas));
     background-image:
-      radial-gradient(1200px 700px at 15% -10%, rgb(var(--swarm-gold) / 0.10), transparent 60%),
-      radial-gradient(1000px 800px at 100% 0%, rgb(var(--swarm-gold-dim) / 0.10), transparent 55%),
-      radial-gradient(900px 900px at 50% 120%, rgb(var(--swarm-border) / 0.35), transparent 60%),
-      repeating-linear-gradient(60deg, rgb(var(--swarm-gold) / 0.028) 0 1px, transparent 1px 26px),
-      repeating-linear-gradient(-60deg, rgb(var(--swarm-gold) / 0.028) 0 1px, transparent 1px 26px),
-      linear-gradient(180deg, rgb(var(--swarm-canvas-hi)), rgb(var(--swarm-canvas)));
+      radial-gradient(1200px 700px at 15% -10%, rgb(var(--swarm-gold) / 0.07), transparent 60%),
+      radial-gradient(1000px 800px at 100% 0%, rgb(var(--swarm-gold-dim) / 0.07), transparent 55%),
+      radial-gradient(900px 900px at 50% 120%, rgb(var(--swarm-border) / 0.3), transparent 60%),
+      repeating-linear-gradient(60deg, rgb(var(--swarm-gold) / 0.025) 0 1px, transparent 1px 26px),
+      repeating-linear-gradient(-60deg, rgb(var(--swarm-gold) / 0.025) 0 1px, transparent 1px 26px);
   }
-
-  /*
-   * The glass system. One material, four elevations. Every value is a --swarm-*
-   * token, so all eight themes get the same glass and none of them needs its
-   * own rules.
-   *
-   * What makes it read as glass rather than "a panel at 70% opacity":
-   *   - a top-to-bottom tint gradient, so the sheet has a light direction;
-   *   - `saturate()` in the backdrop filter, so colour behind it blooms
-   *     through instead of going grey;
-   *   - a bright 1px inset at the top edge and a dark one at the bottom, which
-   *     is what a real pane of glass does to light at its edges;
-   *   - a shadow tinted with the theme's own hue rather than pure black.
-   *
-   * Blur radii come from ONE scale — 14px for everything that sits on the
-   * canvas, 22px for the popover tier (the same two steps tailwind.config
-   * already declares as backdropBlur.glass / .glassHi). They used to be
-   * 16/18/20/20/28, five ad-hoc numbers, and a full grid of panes stacked
-   * toolbar + pane + body + rail blurs on top of each other every frame.
-   * Backdrop blur cost scales with radius AND with how many of them the
-   * compositor has to resolve in sequence, and past ~14px on a dark surface
-   * the difference is not visible — so the pane grid got roughly a third of
-   * its blur work back for no change you can point at.
-   */
 
   /*
    * The Flow canvas floor. Two dot grids at a 1:5 ratio — a fine one for
    * placement and a brighter one every fifth cell, so distance is still
-   * readable when zoomed out and the fine grid has collapsed into fog. Over
-   * the same warm depth wash the app canvas uses, so the canvas reads as part
-   * of the swarm rather than a blank document.
+   * readable when zoomed out and the fine grid has collapsed into fog. Same
+   * warm depth wash as the app canvas, so Flow reads as part of the swarm
+   * rather than a blank document.
    */
   .canvas-surface {
     background-color: rgb(var(--swarm-canvas));
     background-image:
       radial-gradient(circle at center, rgb(var(--swarm-text) / 0.10) 1px, transparent 1.2px),
       radial-gradient(circle at center, rgb(var(--swarm-gold) / 0.18) 1.4px, transparent 1.6px),
-      radial-gradient(1000px 640px at 12% -8%, rgb(var(--swarm-gold) / 0.09), transparent 62%),
-      radial-gradient(900px 720px at 92% 4%, rgb(var(--swarm-gold-dim) / 0.08), transparent 58%),
-      linear-gradient(180deg, rgb(var(--swarm-canvas-hi)), rgb(var(--swarm-canvas)));
-    background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat;
+      radial-gradient(1000px 640px at 12% -8%, rgb(var(--swarm-gold) / 0.07), transparent 62%),
+      radial-gradient(900px 720px at 92% 4%, rgb(var(--swarm-gold-dim) / 0.06), transparent 58%);
+    background-repeat: repeat, repeat, no-repeat, no-repeat;
   }
 
-  /* Elevation 0: title bars, strips, pane headers. Sits ON something. */
-  .glass-toolbar {
-    background-image: linear-gradient(
-      180deg,
-      rgb(var(--swarm-surface-hi) / 0.82),
-      rgb(var(--swarm-surface) / 0.68)
-    );
-    backdrop-filter: blur(14px) saturate(1.5);
-    -webkit-backdrop-filter: blur(14px) saturate(1.5);
-    box-shadow:
-      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.07),
-      inset 0 -1px 0 0 rgb(0 0 0 / 0.22);
-  }
-
-  /* Elevation 1: panes and cards. Floats over the canvas. */
+  /* Elevation 1 — a pane or card frame, sitting on the floor. Opaque, so the
+     1px border and the drop shadow are the whole separation; the top rim-light
+     and bottom shade are what stop it reading as a flat rectangle. */
   .glass {
-    background-image: linear-gradient(
-      165deg,
-      rgb(var(--swarm-surface-hi) / 0.74),
-      rgb(var(--swarm-surface) / 0.58) 55%,
-      rgb(var(--swarm-canvas-hi) / 0.62)
-    );
-    backdrop-filter: blur(14px) saturate(1.6);
-    -webkit-backdrop-filter: blur(14px) saturate(1.6);
-    border: 1px solid rgb(var(--swarm-border) / 0.55);
+    background-color: rgb(var(--swarm-canvas-hi));
+    border: 1px solid rgb(var(--swarm-border));
     box-shadow:
-      0 10px 30px -14px rgb(0 0 0 / 0.62),
-      0 2px 8px -4px rgb(var(--swarm-gold) / 0.06),
-      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.09),
+      0 10px 28px -14px rgb(0 0 0 / 0.7),
+      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.06),
       inset 0 -1px 0 0 rgb(0 0 0 / 0.25);
-    transition: box-shadow 0.24s ease, border-color 0.24s ease;
+    transition:
+      box-shadow var(--swarm-t-base) var(--swarm-ease),
+      border-color var(--swarm-t-base) var(--swarm-ease);
   }
 
-  /* Elevation 2: dropdowns, dialogs, popovers. Floats over panes. */
-  .glass-hi {
-    background-image: linear-gradient(
-      165deg,
-      rgb(var(--swarm-surface-hi) / 0.9),
-      rgb(var(--swarm-surface) / 0.8) 60%,
-      rgb(var(--swarm-canvas-hi) / 0.84)
-    );
-    backdrop-filter: blur(22px) saturate(1.7);
-    -webkit-backdrop-filter: blur(22px) saturate(1.7);
-    border: 1px solid rgb(var(--swarm-border) / 0.75);
-    box-shadow:
-      0 20px 48px -18px rgb(0 0 0 / 0.72),
-      0 4px 14px -6px rgb(var(--swarm-gold) / 0.08),
-      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.12),
-      inset 0 -1px 0 0 rgb(0 0 0 / 0.3);
-  }
-
-  /*
-   * A pane's content area. Translucent enough that the glass frame and the
-   * canvas behind it are genuinely visible through the pane, opaque enough
-   * that a terminal full of small text stays crisp. That balance is the whole
-   * job: below about 0.78 the dot grid starts showing through code.
-   *
-   * Deliberately has NO backdrop-filter. It is always a child of .glass, which
-   * has already blurred the canvas — re-blurring an image that is (a) blurred
-   * and (b) covered by an 80-86% opaque wash produces no pixel you can see,
-   * while costing one full-pane compositing pass per pane per frame. With a
-   * grid of panes that was the most expensive invisible thing in the app, and
-   * the terminal panes hide it completely behind an opaque canvas anyway.
-   */
+  /* A pane's content area. Same value as its frame so the two are continuous —
+     the frame's job is the edge, not a second colour. */
   .glass-body {
-    background-image: linear-gradient(
-      180deg,
-      rgb(var(--swarm-canvas-hi) / 0.86),
-      rgb(var(--swarm-canvas) / 0.8)
-    );
+    background-color: rgb(var(--swarm-canvas-hi));
   }
 
-  /* Elevation -1: inputs, wells, anything that reads as cut INTO the glass. */
+  /* Elevation 2 — pane headers, title bars, the board strip. One step lighter
+     than the pane it sits on, which is what finally separates a header from its
+     own body; the hairline is a bottom inset rather than a border so it costs
+     no layout height. */
+  .glass-toolbar {
+    background-color: rgb(var(--swarm-surface));
+    box-shadow:
+      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.05),
+      inset 0 -1px 0 0 rgb(var(--swarm-border));
+  }
+
+  /* A vertical rail: sidebars and docks. One step above the floor, one below a
+     header, with a single lit inner edge facing the board. */
+  .glass-rail {
+    background-color: rgb(var(--swarm-canvas-hi));
+    box-shadow: inset -1px 0 0 0 rgb(var(--swarm-text) / 0.05);
+  }
+
+  /* Elevation -1 — inputs, wells, anything cut INTO a surface. Must set
+     background-color, not just a background-image: on an <input> the UA's
+     opaque white field colour shows through a semi-transparent image and the
+     light text above it disappears. */
   .glass-inset {
-    background-image: linear-gradient(
-      180deg,
-      rgb(var(--swarm-canvas) / 0.72),
-      rgb(var(--swarm-canvas-hi) / 0.5)
-    );
-    border: 1px solid rgb(var(--swarm-border) / 0.6);
+    background-color: rgb(var(--swarm-canvas));
+    border: 1px solid rgb(var(--swarm-border));
     box-shadow:
       inset 0 1px 3px 0 rgb(0 0 0 / 0.35),
       inset 0 -1px 0 0 rgb(var(--swarm-text) / 0.04);
   }
 
-  /* A vertical rail: sidebars and docks, glass with one lit edge. */
-  .glass-rail {
-    background-image: linear-gradient(
-      180deg,
-      rgb(var(--swarm-surface) / 0.7),
-      rgb(var(--swarm-canvas-hi) / 0.62)
-    );
-    backdrop-filter: blur(14px) saturate(1.5);
-    -webkit-backdrop-filter: blur(14px) saturate(1.5);
-    box-shadow: inset -1px 0 0 0 rgb(var(--swarm-text) / 0.05);
+  /* Elevation 3 — menus, dialogs, popovers, the command palette. The only tier
+     that genuinely overlaps other content, so it is the only one that keeps a
+     backdrop blur: here the blur carries information (what is behind is out of
+     reach) instead of being decoration. */
+  .glass-hi {
+    background-color: rgb(var(--swarm-surface-hi) / 0.92);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
+    border: 1px solid rgb(var(--swarm-border-hi) / 0.7);
+    box-shadow:
+      0 20px 48px -18px rgb(0 0 0 / 0.75),
+      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.1),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.3);
   }
 
   /* The hover binding for the lifted shadow below. Tailwind cannot supply a
@@ -377,27 +325,29 @@ select:focus {
      in the theme's boxShadow scale, so `hover:shadow-glass-lg` compiles to
      nothing and the lift silently never happens. */
   .glass-lift {
-    transition: box-shadow 0.24s ease, border-color 0.24s ease;
+    transition:
+      box-shadow var(--swarm-t-base) var(--swarm-ease),
+      border-color var(--swarm-t-base) var(--swarm-ease);
   }
   .glass-lift:hover {
+    border-color: rgb(var(--swarm-border-hi));
     box-shadow:
-      0 16px 38px -14px rgb(0 0 0 / 0.7),
-      0 3px 10px -4px rgb(var(--swarm-gold) / 0.1),
-      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.13),
+      0 16px 36px -14px rgb(0 0 0 / 0.75),
+      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.1),
       inset 0 -1px 0 0 rgb(0 0 0 / 0.28);
   }
 
   /* Lift on hover. Paired with .glass on anything interactive. */
   .shadow-glass-lg {
     box-shadow:
-      0 16px 38px -14px rgb(0 0 0 / 0.7),
-      0 3px 10px -4px rgb(var(--swarm-gold) / 0.1),
-      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.13),
+      0 16px 36px -14px rgb(0 0 0 / 0.75),
+      inset 0 1px 0 0 rgb(var(--swarm-text) / 0.1),
       inset 0 -1px 0 0 rgb(0 0 0 / 0.28);
   }
 
-  /* A specular sweep across the top of a sheet. Opt-in: too much of this and
-     the UI turns into a showroom. Used on the biggest surfaces only. */
+  /* A specular sweep across the top of a sheet. Opt-in, and only meaningful on
+     .glass-hi — everything below that tier is opaque now, and a z-index:-1
+     pseudo-element behind an opaque background paints nothing. */
   .glass-sheen {
     position: relative;
     isolation: isolate;
@@ -417,24 +367,34 @@ select:focus {
   }
 
   /*
-   * Active pane — the focused one, across a grid of identical ones.
+   * Active pane — the focused one, across a grid of identical ones. This is the
+   * product's core job (tell agents apart at a glance), so it is the one place
+   * the design is allowed to shout.
    *
-   * An outline rather than a border + glow, for two reasons that were both
-   * live bugs. It used to bump border-width 1px -> 2px, which changes the
-   * pane's content box: the terminal inside re-fit its whole character grid
-   * on every focus change, so clicking between panes made the text jump. And
-   * its glow was a box-shadow declared here in the components layer, which
-   * loses the cascade tie to the `shadow-glass` utility the pane also carries
-   * — so the glow never actually painted. Outline is painted outside layout
-   * and fights nothing, which also leaves box-shadow free for the drag-drop
-   * ring, and leaves the drop-target's accent top border visible.
+   * An outline rather than a border + glow, for two reasons that were both live
+   * bugs. It used to bump border-width 1px -> 2px, which changes the pane's
+   * content box: the terminal inside re-fit its whole character grid on every
+   * focus change, so clicking between panes made the text jump. And its glow was
+   * a box-shadow declared here in the components layer, which loses the cascade
+   * tie to the `shadow-glass` utility the pane also carries — so the glow never
+   * actually painted. Outline is painted outside layout and fights nothing,
+   * which also leaves box-shadow free for the drag-drop ring and leaves the
+   * drop-target's accent top border visible.
    *
-   * Near-opaque so it survives the low-contrast accents in the darker themes,
-   * where a 0.18-alpha gold ring was invisible against its own pane.
+   * Near-opaque so it survives Obsidian, whose accent is a cold blue against an
+   * almost black pane — a 0.18-alpha ring simply vanished there.
    */
   .pane-active {
     outline: 2px solid rgb(var(--swarm-gold) / 0.9);
     outline-offset: -1px;
+  }
+
+  /* The second half of focus: the pane's header lifts a rung. Descendant, not
+     child — the header is nested inside the pane's own component, not a direct
+     child of the frame. Two classes beats .glass-toolbar's one, so this wins
+     without !important. */
+  .pane-active .glass-toolbar {
+    background-color: rgb(var(--swarm-surface-hi));
   }
 
   /*
@@ -456,5 +416,33 @@ select:focus {
   .scrollbar-hair::-webkit-scrollbar {
     width: 3px;
     height: 3px;
+  }
+}
+
+/* The two accessibility overrides live at the very END of the file, after the
+   components layer, so plain source order settles the tie with the classes they
+   override and neither needs !important to win. */
+
+/* Motion is decoration here, never information. Strip it on request. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The ladder is already opaque, so .glass-hi is the only surface left to fix:
+   drop its blur and close the last 8% of transparency. The sheen goes too — a
+   tint gradient over an opaque fill just looks dirty. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass-hi {
+    background-color: rgb(var(--swarm-surface-hi));
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .glass-sheen::before {
+    display: none;
   }
 }

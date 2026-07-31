@@ -30,7 +30,11 @@ export const CLASS_COLORS = {
   terminal: "#c6ced6",
   /** An editor extension that cannot act as an agent (a tool). */
   extension: "#5fbf7d",
-  browser: "#8ab4d8",
+  // A real blue, not the blue-grey this was (#8ab4d8). At 6px, next to the
+  // terminal's #c6ced6 in the same strip, the two were the same pale dot —
+  // which is exactly the "two kinds look identical" the code is meant to
+  // prevent. Every kind is now separated by hue, not just by lightness.
+  browser: "#6aa6e8",
   emulator: "#c58ad8",
   /** The agent toolbox: skills and MCP servers shared by every swarm. */
   toolbox: "#63c6c0",
@@ -69,7 +73,27 @@ export function themeForKind(kind?: string): ComponentTheme {
  * title (and anything else the pointer crosses) that then lingers after drop.
  */
 export const PANE_HEADER_CLASS =
-  "h-8 shrink-0 select-none border-b border-swarm-border/45 glass-toolbar flex items-center gap-1.5 px-2 cursor-grab active:cursor-grabbing";
+  "h-8 shrink-0 select-none border-b border-swarm-border/45 glass-toolbar flex items-center gap-1.5 px-2 cursor-grab active:cursor-grabbing " +
+  // Focus lift. PlaneHost marks the focused pane's wrapper `.pane-active`, so
+  // keying off that ancestor gives every pane kind the same treatment without
+  // threading an isFocused prop through six unrelated components.
+  // Colour only, never border-WIDTH: widening the border resizes the content
+  // box and forces the xterm inside to re-fit its whole character grid, so the
+  // text visibly jumps on every focus change.
+  // The background lift duplicates globals.css's `.pane-active .glass-toolbar`
+  // on purpose, and must not be deleted as redundant: the
+  // prefers-reduced-transparency block sets .glass-toolbar's background with
+  // !important, which beats that unprefixed rule. Only this `!` version
+  // survives it — i.e. for the users who most need a non-transparency focus cue
+  // it is the ONLY thing lifting the header.
+  "[.pane-active_&]:!bg-swarm-surfaceHi [.pane-active_&]:border-swarm-borderHi";
+
+/**
+ * The pane's name text. Dim by default and full-contrast only in the focused
+ * pane — across a grid of otherwise identical panes the lift has to win without
+ * the other panes shouting back. Same `.pane-active` hook as the header.
+ */
+export const PANE_TITLE_CLASS = "text-swarm-textDim [.pane-active_&]:text-swarm-text";
 
 /**
  * Spread onto a pane's title bar. Carries the shared classes AND the marker the

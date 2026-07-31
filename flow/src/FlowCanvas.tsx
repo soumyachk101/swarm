@@ -243,7 +243,7 @@ function CanvasHint({ used }: { used: boolean }) {
 
   if (dismissed) return null;
   return (
-    <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg glass-hi px-2.5 py-1.5 text-micro text-swarm-textMuted shadow-glass">
+    <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg glass-hi px-2.5 py-1.5 text-micro text-swarm-textMuted">
       Drag the canvas to pan · Ctrl + scroll to zoom · drag a pane&apos;s title bar to move it
     </div>
   );

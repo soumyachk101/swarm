@@ -50,7 +50,9 @@ export default function WorktreeSelect({
         title={current ? `Tree: ${current.name} (${current.branch})` : "Main repo"}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-1 rounded-md border border-swarm-border/60 glass-inset px-1.5 py-0.5 text-micro font-medium text-swarm-textDim hover:text-swarm-text hover:border-swarm-gold/40 transition-colors max-w-[120px]"
+        // 26px is the app's chip height; this used to be a ~19px control inside a
+        // 32px pane header, which is why the header row looked ragged.
+        className="flex h-[26px] max-w-[120px] items-center gap-1 rounded-md border border-swarm-border/60 glass-inset px-1.5 text-micro font-medium text-swarm-textDim transition-colors hover:border-swarm-gold/40 hover:text-swarm-text"
       >
         <GitBranch className="size-3 shrink-0 text-swarm-gold" />
         <span className="truncate">{label}</span>
@@ -65,7 +67,7 @@ export default function WorktreeSelect({
               window for any pane in the lower half of the board, where the list
               was simply unreachable. */}
           <div
-            className="fixed z-[201] min-w-40 max-w-56 max-h-64 overflow-y-auto scrollbar-sleek rounded-lg glass-hi py-1 shadow-glassHi"
+            className="fixed z-[201] min-w-40 max-w-56 max-h-64 overflow-y-auto scrollbar-sleek rounded-lg glass-hi py-1"
             style={
               window.innerHeight - rect.bottom < 200 && rect.top > 200
                 ? { bottom: window.innerHeight - rect.top + 4, right: window.innerWidth - rect.right }

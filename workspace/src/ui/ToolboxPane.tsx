@@ -148,10 +148,10 @@ export default function ToolboxPane({ paneId, onClose, onToggleMaximize, isMaxim
         <p className="p-4 text-mini text-swarm-textMuted">Open a workspace to give its agents a toolbox.</p>
       ) : (
         <>
-          <div className="flex shrink-0 items-center gap-1 border-b border-swarm-border/40 px-2 py-1.5">
+          <div className="flex h-8 shrink-0 items-center gap-1 border-b border-swarm-border/40 px-2">
             {(["skills", "mcp"] as Tab[]).map((t) => (
               <button key={t} onClick={() => setTab(t)}
-                className={`rounded-md px-2 py-0.5 text-mini font-medium transition-colors ${
+                className={`flex h-[26px] items-center rounded-md px-2 text-mini font-medium transition-colors ${
                   tab === t ? "bg-swarm-gold/15 text-swarm-goldHi" : "text-swarm-textDim hover:bg-swarm-border/40 hover:text-swarm-text"
                 }`}>
                 {t === "skills" ? `Skills (${toolbox.skills.length})` : `MCP (${toolbox.mcpServers.length})`}

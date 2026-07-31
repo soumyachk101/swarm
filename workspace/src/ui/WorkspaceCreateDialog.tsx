@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { X, FolderOpen } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { useWorkspaceStore, folderName } from "../store.js";
+import { useWorkspaceStore, folderName, samePath } from "../store.js";
 
 const AGENT_COLORS = ['#c9a227', '#8fae7a', '#7f9db8', '#b79ae0', '#c66b5a', '#7fb3ab'];
 
@@ -58,11 +58,19 @@ export default function WorkspaceCreateDialog({ open, onClose }: Props) {
     }
   }, []);
 
+  // One folder, one workspace: a second workspace over the same folder gets a
+  // second brain on the same `.pheromone/`, and both then write over each other.
+  // The folder picker can't prevent it, so the dialog has to.
+  const clash = projectPath.trim()
+    ? workspaces.find((w) => samePath(w.boundProjectPath, projectPath.trim()))
+    : undefined;
+  const invalid = clash ? `That folder is already open as “${clash.name}”.` : null;
+
   const handleCreate = useCallback(async () => {
     // A name is optional: with a folder picked the agent takes the folder's
     // name, and with neither it starts as "Untitled" and renames itself as soon
-    // as a folder is bound. Nothing here should block making a agent.
-    if (creating) return;
+    // as a folder is bound. Only a folder clash blocks creation.
+    if (creating || invalid) return;
     setCreating(true);
     const color = AGENT_COLORS[workspaces.length % AGENT_COLORS.length];
     const typed = name.trim();
@@ -83,7 +91,7 @@ export default function WorkspaceCreateDialog({ open, onClose }: Props) {
       } catch {}
     }
     onClose();
-  }, [name, projectPath, creating, workspaces.length, addWorkspace, onClose]);
+  }, [name, projectPath, creating, invalid, workspaces.length, addWorkspace, onClose]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -123,7 +131,7 @@ export default function WorkspaceCreateDialog({ open, onClose }: Props) {
         role="dialog"
         aria-modal="true"
         aria-label="New workspace"
-        className="w-[400px] max-w-[calc(100vw-2rem)] glass-hi rounded-xl shadow-glassHi animate-scale-in overflow-hidden"
+        className="w-[400px] max-w-[calc(100vw-2rem)] glass-hi rounded-xl animate-scale-in overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -142,10 +150,11 @@ export default function WorkspaceCreateDialog({ open, onClose }: Props) {
         {/* Body */}
         <div className="px-4 py-3 space-y-3">
           <div className="space-y-1">
-            <label className="text-mini font-medium text-swarm-textDim uppercase tracking-wider">
+            <label htmlFor="ws-create-name" className="block text-micro font-medium uppercase tracking-[0.06em] text-swarm-textMuted">
               Workspace Name
             </label>
             <input
+              id="ws-create-name"
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -155,26 +164,39 @@ export default function WorkspaceCreateDialog({ open, onClose }: Props) {
           </div>
 
           <div className="space-y-1">
-            <label className="text-mini font-medium text-swarm-textDim uppercase tracking-wider">
+            <label htmlFor="ws-create-path" className="block text-micro font-medium uppercase tracking-[0.06em] text-swarm-textMuted">
               Project Folder (optional)
             </label>
             <div className="flex items-center gap-2">
               <input
+                id="ws-create-path"
                 value={projectPath}
                 onChange={(e) => setProjectPath(e.target.value)}
                 title={projectPath || undefined}
                 spellCheck={false}
                 placeholder="Select or type a folder path"
-                className="flex-1 h-8 px-2.5 rounded-md border border-swarm-border/60 glass-inset text-xs text-swarm-text outline-none focus:border-swarm-gold/60 focus:ring-[1px] focus:ring-swarm-gold/20 placeholder:text-swarm-textMuted/50 transition-colors truncate"
+                aria-invalid={!!invalid}
+                aria-describedby={invalid ? "ws-create-error" : undefined}
+                className={`flex-1 h-8 px-2.5 rounded-md border glass-inset text-xs text-swarm-text outline-none focus:ring-[1px] placeholder:text-swarm-textMuted/50 transition-colors truncate ${
+                  invalid
+                    ? "border-swarm-err/60 focus:border-swarm-err focus:ring-swarm-err/20"
+                    : "border-swarm-border/60 focus:border-swarm-gold/60 focus:ring-swarm-gold/20"
+                }`}
               />
               <button
                 onClick={handleBrowse}
                 className="size-8 rounded-md flex items-center justify-center border border-swarm-border/60 text-swarm-textMuted hover:text-swarm-text hover:bg-swarm-border/40 transition-colors"
                 title="Browse for folder"
+                aria-label="Browse for folder"
               >
                 <FolderOpen className="size-3.5" />
               </button>
             </div>
+            {/* The reason Create is disabled has to be on screen — a dead
+                primary button with no explanation reads as a broken dialog. */}
+            {invalid && (
+              <p id="ws-create-error" role="alert" className="text-micro text-swarm-err">{invalid}</p>
+            )}
           </div>
         </div>
 
@@ -188,7 +210,7 @@ export default function WorkspaceCreateDialog({ open, onClose }: Props) {
           </button>
           <button
             onClick={handleCreate}
-            disabled={creating}
+            disabled={creating || !!invalid}
             className="px-4 py-1.5 rounded-lg text-xs font-medium bg-swarm-gold/15 border border-swarm-gold/25 text-swarm-goldHi hover:bg-swarm-gold/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {creating ? "Creating…" : "Create Workspace"}

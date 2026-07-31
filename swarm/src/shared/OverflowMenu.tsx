@@ -95,7 +95,7 @@ export default function OverflowMenu({ items }: { items: OverflowItem[] }) {
               ref={menuRef}
               role="menu"
               aria-label="More"
-              className="fixed z-[201] w-56 overflow-y-auto scrollbar-sleek rounded-xl glass-hi p-1 shadow-glassHi animate-fade-in"
+              className="fixed z-[201] w-56 overflow-y-auto scrollbar-sleek rounded-xl glass-hi p-1 animate-fade-in"
               // Clamped on both edges, not just the left: the trigger sits in a
               // right-hand toolbar, so anchoring at rect.left alone pushed the
               // panel past the window and clipped the labels. maxHeight keeps a

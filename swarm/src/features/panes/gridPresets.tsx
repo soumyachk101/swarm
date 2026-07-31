@@ -3,7 +3,9 @@ import type { GridLayout } from "@swarm/agents/ui";
 /**
  * Pane grid presets shown in the drag-to-top snap picker.
  *
- * Two families, plus Focus:
+ * Two families, plus Focus and Auto:
+ *  - Auto: columns and rows follow the pane count AND the plane's shape (see
+ *    autoCols). The only preset that leaves no empty cells at most counts.
  *  - Column presets (cols2/3/4): N columns, each row is full plane height, so
  *    panes stay large and the plane scrolls once there are more than N.
  *  - Grid presets (NxM): N columns and M rows fill one screen exactly; panes
@@ -21,9 +23,35 @@ export interface GridPreset {
   cols: number;
   rows?: number;
   focus?: boolean;
+  /** Host computes cols/rows from the pane count and plane shape. */
+  auto?: boolean;
+}
+
+/**
+ * Columns for the Auto layout, from the pane count and the plane's aspect
+ * ratio (width / height of the body, gutters included).
+ *
+ * A lookup, not a formula: the formula answers (round(sqrt(count * aspect /
+ * target))) are only defensible half the time, and this is the table someone
+ * has to reason about at 3am. Read a row as "with this many panes, use this
+ * many columns" — counts past 8 all sit in the last column.
+ *
+ * The shapes are chosen so the last row is full wherever the count allows it
+ * (3 panes wide ⇒ 3 columns, not 2×2 with a hole), because an empty cell on a
+ * board is exactly the dead space Auto exists to avoid.
+ */
+export function autoCols(count: number, aspect: number): number {
+  if (count <= 1) return 1;
+  //                        panes: 1  2  3  4  5  6  7  8+
+  const wide /*  ≥ 16:9  */ = [1, 2, 3, 2, 3, 3, 4, 4];
+  const mid /*   ~ 4:3   */ = [1, 2, 2, 2, 3, 3, 3, 4];
+  const tall /*  portrait*/ = [1, 1, 2, 2, 2, 2, 3, 3];
+  const row = aspect >= 1.7 ? wide : aspect >= 1.1 ? mid : tall;
+  return row[Math.min(count, 8) - 1];
 }
 
 export const GRID_PRESETS: GridPreset[] = [
+  { id: "auto", label: "Auto", cols: 2, auto: true },
   { id: "cols2", label: "2 columns", cols: 2 },
   { id: "cols3", label: "3 columns", cols: 3 },
   { id: "cols4", label: "4 columns", cols: 4 },

@@ -34,7 +34,7 @@ import { isAlreadySpawned, isTrackedAsSpawned, markSpawned, saveTranscript, take
 import { withHandoffLock } from "./handoffQueue.js";
 import RoleBadge from "./RoleBadge.js";
 import { LeadCrown } from "@swarm/board";
-import { PANE_HEADER_CLASS, themeForKind } from "@swarm/board";
+import { PANE_HEADER_CLASS, PANE_TITLE_CLASS, themeForKind } from "@swarm/board";
 import type { LeadMode } from "@swarm/lead";
 import {
   THEME_CHANGE_EVENT,
@@ -150,11 +150,15 @@ function CLINotFoundCard({ cli, cliName, onClose }: CLINotFoundCardProps) {
   };
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-5 animate-fade-in">
+    // No `animate-fade-in` here either: the keyframe translates, and this card
+    // shares a stacking context with the (hidden but live) xterm canvas.
+    <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-5">
       {/* Icon + heading */}
       <div className="flex flex-col items-center gap-2 text-center">
-        {/* The CLI's own logo, so the screen names the missing tool visually. */}
-        <div className="w-12 h-12 rounded-2xl glass flex items-center justify-center text-swarm-gold shadow-glass">
+        {/* The CLI's own logo, so the screen names the missing tool visually.
+            A plate, not `.glass`: that class is a pane FRAME (rim light + drop
+            shadow) and on a 48px tile it read as a floating card. */}
+        <div className="w-12 h-12 rounded-2xl border border-swarm-border bg-swarm-surface flex items-center justify-center text-swarm-gold">
           {cliBrand(info?.id) ? <BrandGlyph brand={cliBrand(info?.id)!} size={24} /> : <AgentMark size={24} />}
         </div>
         <div>
@@ -173,14 +177,16 @@ function CLINotFoundCard({ cli, cliName, onClose }: CLINotFoundCardProps) {
           <p className="text-mini text-swarm-textDim uppercase tracking-wide font-semibold">
             Install command
           </p>
-          <div className="relative rounded-xl glass border border-swarm-border/70 overflow-hidden">
+          {/* A well, not a raised frame — it holds text to be read and copied. */}
+          <div className="relative rounded-xl glass-inset border border-swarm-border/70 overflow-hidden">
             <pre className="text-mini font-mono text-swarm-gold px-3 py-2.5 pr-10 overflow-x-auto whitespace-pre-wrap break-all leading-relaxed">
               {info.installCmd}
             </pre>
             <button
               onClick={copy}
-              className="absolute top-2 right-2 p-1.5 rounded-md bg-swarm-border/40 hover:bg-swarm-gold/20 text-swarm-textDim hover:text-swarm-gold transition-all"
+              className="absolute top-2 right-2 p-1.5 rounded-md bg-swarm-border/40 hover:bg-swarm-gold/20 text-swarm-textDim hover:text-swarm-gold transition-colors"
               title="Copy install command"
+              aria-label="Copy install command"
             >
               {copied ? (
                 <Check size={11} className="text-swarm-gold" />
@@ -207,7 +213,7 @@ function CLINotFoundCard({ cli, cliName, onClose }: CLINotFoundCardProps) {
         )}
         <button
           onClick={onClose}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs glass border border-swarm-border/70 text-swarm-textDim hover:text-swarm-text transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-swarm-surface border border-swarm-border/70 text-swarm-textDim hover:text-swarm-text transition-colors"
         >
           <Trash2 size={12} />
           Remove pane
@@ -270,6 +276,12 @@ export default function AgentPane({
   const apiKeys = agentsHost().apiKeys();
 
   const [paneWidth, setPaneWidth] = useState(0);
+  // The store's status was written once, at pane creation ("launching"), and
+  // never again — so the sidebar, the workspaces panel and the fullscreen
+  // widgets showed every agent as still starting forever, including ones that
+  // had failed. This pane is the only thing that knows the truth, so it is what
+  // publishes it. Purely a store write; nothing here feeds the spawn effect.
+  const setAgentStatus = useAgentsStore((s) => s.setAgentStatus);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const compactHeader = paneWidth > 0 && paneWidth < COMPACT_HEADER_WIDTH;
@@ -299,6 +311,13 @@ export default function AgentPane({
       window.removeEventListener("keydown", onKey);
     };
   }, [menuOpen, compactHeader]);
+
+  useEffect(() => {
+    setAgentStatus(
+      agent.id,
+      spawnState === "running" ? "running" : spawnState === "connecting" ? "launching" : "error",
+    );
+  }, [spawnState, agent.id, setAgentStatus]);
 
   // Crown state — one Lead per agent, so this only looks at the swarms
   // of this pane's own folder.
@@ -377,6 +396,9 @@ export default function AgentPane({
   }, [fontSize, paneId]);
 
   const displayName = agent.customName || agent.cliName;
+  // Both spawn failures read the same in the chrome: the pane is not running an
+  // agent. Only the overlay needs to say which kind of failure it was.
+  const failed = spawnState === "error" || spawnState === "notFound";
 
   const writeToProcess = (data: string) => {
     invoke("write_to_terminal", { paneId, data }).catch((e) =>
@@ -1179,29 +1201,32 @@ export default function AgentPane({
           ) : (
             <span
               onDoubleClick={onRename}
-              className="flex items-center gap-1.5 text-xs text-swarm-text font-medium cursor-pointer hover:text-swarm-goldHi transition-colors truncate"
+              title={displayName}
+              className={`flex items-center gap-1.5 text-xs font-medium cursor-pointer hover:text-swarm-goldHi transition-colors truncate ${PANE_TITLE_CLASS}`}
             >
               {/* The dot means CLI agent, always — it is the one place a pane
                   states its class, so status must never repaint it. Starting
                   pulses; a failed spawn keeps the class colour and takes a red
-                  halo instead. Shown at every width for the same reason. */}
+                  halo instead. Shown at every width for the same reason.
+                  `notFound` is a failed spawn too: it used to render as a
+                  perfectly healthy dot, so a grid of panes hid the one whose
+                  CLI isn't installed. */}
               <span
                 className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                   spawnState === "connecting" ? "animate-pulse" : ""
                 }`}
                 style={{
                   background: themeForKind("agent").accent,
-                  boxShadow:
-                    spawnState === "error"
-                      ? "0 0 0 2px rgba(198, 107, 90, 0.85)"
-                      : undefined,
+                  boxShadow: failed ? "0 0 0 2px rgb(var(--swarm-err) / 0.85)" : undefined,
                 }}
                 title={
-                  spawnState === "error"
-                    ? "CLI agent — failed to start"
-                    : spawnState === "connecting"
-                      ? "CLI agent — starting…"
-                      : "CLI agent — running"
+                  spawnState === "notFound"
+                    ? `CLI agent — ${agent.cli} is not installed`
+                    : spawnState === "error"
+                      ? "CLI agent — failed to start"
+                      : spawnState === "connecting"
+                        ? "CLI agent — starting…"
+                        : "CLI agent — running"
                 }
               />
               {agent.role && (
@@ -1243,6 +1268,8 @@ export default function AgentPane({
                   ? "This folder already has a Lead — demote it first"
                   : "Make Lead — moves this agent to the Lead tab"
             }
+            aria-pressed={isLead}
+            aria-label={isLead ? "Demote from Lead" : "Make Lead"}
           >
             <LeadCrown size={12} />
           </button>
@@ -1259,6 +1286,7 @@ export default function AgentPane({
                   ? `Sync to shared mind (last: ${new Date(lastSync).toLocaleTimeString()})`
                   : "Sync to shared mind (auto every 10s)"
             }
+            aria-label="Sync to shared mind"
           >
             <RefreshCw size={12} className={syncing ? "animate-spin" : ""} />
           </button>
@@ -1292,7 +1320,7 @@ export default function AgentPane({
                   // menu's own padding would otherwise start dragging the pane
                   // out from under the click.
                   onMouseDown={(e) => e.stopPropagation()}
-                  className="glass-hi absolute right-0 top-full z-30 mt-1 min-w-[9.5rem] rounded-lg border border-swarm-border/60 p-1 shadow-glass"
+                  className="glass-hi absolute right-0 top-full z-30 mt-1 min-w-[9.5rem] rounded-lg border border-swarm-border/60 p-1"
                 >
                   {viewActions.map((action) => (
                     <button
@@ -1322,6 +1350,7 @@ export default function AgentPane({
                 }}
                 className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
                 title={action.label}
+                aria-label={action.label}
               >
                 {action.icon}
               </button>
@@ -1334,7 +1363,8 @@ export default function AgentPane({
                 onClose();
               }}
               className="p-1.5 rounded-md text-swarm-textDim hover:bg-swarm-err/25 hover:text-swarm-err transition-colors"
-              title="Delete Agent"
+              title={`Delete ${displayName}`}
+              aria-label={`Delete ${displayName}`}
             >
               <Trash2 size={12} />
             </button>
@@ -1363,14 +1393,25 @@ export default function AgentPane({
           />
         )}
 
-        {/* Loading / generic error overlay */}
+        {/* Loading / generic error overlay. No `animate-fade-in`: that keyframe
+            animates translateY, and a transform over a live terminal is how the
+            glyph atlas ends up rasterised at the wrong scale. No backdrop-blur
+            either — it sits on an opaque terminal, so it only cost GPU. */}
         {spawnState !== "running" && spawnState !== "notFound" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none glass-inset backdrop-blur-[2px] animate-fade-in px-4 text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none glass-inset px-4 text-center">
             {spawnState === "error" ? (
               <>
                 <AlertTriangle size={18} className="text-swarm-err" />
                 <span className="text-xs text-swarm-textDim">
                   {displayName} failed to start
+                </span>
+                {/* "Failed" with no cause leaves the user with nothing to do
+                    but delete the pane. The command is the one fact that
+                    always narrows it down. */}
+                <span className="text-mini text-swarm-textMuted max-w-[240px]">
+                  Running <code className="font-mono">{agent.cli}</code> in this
+                  folder failed. Check the console for the spawn error, then
+                  remove and re-add the pane.
                 </span>
               </>
             ) : (

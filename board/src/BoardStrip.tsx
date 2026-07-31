@@ -92,9 +92,14 @@ export default function BoardStrip({
             // invalid HTML. activatable() restores the tab stop and Enter/Space.
             {...activatable(() => onSelect(it.id), it.name)}
             aria-current={active ? "true" : undefined}
-            className={`group flex h-7 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-md border px-2 text-mini font-medium transition-colors ${
+            // 26px chip, the one chip/tab height in the app. `glass` is a pane
+            // FRAME (border, rim light, drop shadow) — on a 26px chip it read as
+            // a floating card inside the toolbar. The active chip is the same
+            // surface its focused pane header lifts to instead, so a chip and
+            // its pane obviously state the same thing.
+            className={`group flex h-6.5 shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-md border px-2 text-mini font-medium transition-colors ${
               active
-                ? "border-swarm-border/70 glass text-swarm-text"
+                ? "border-swarm-borderHi bg-swarm-surfaceHi text-swarm-text"
                 : "border-transparent text-swarm-textDim hover:bg-swarm-border/30 hover:text-swarm-text"
             }`}
             title={it.name}
@@ -134,7 +139,7 @@ export default function BoardStrip({
         type="button"
         ref={addRef}
         onClick={onAdd}
-        className="flex size-7 shrink-0 items-center justify-center rounded-md border border-swarm-gold/30 bg-swarm-gold/10 text-swarm-goldHi transition-colors hover:bg-swarm-gold/20"
+        className="flex size-6.5 shrink-0 items-center justify-center rounded-md border border-swarm-gold/30 bg-swarm-gold/10 text-swarm-goldHi transition-colors hover:bg-swarm-gold/20"
         title="Add component"
         aria-label="Add component"
       >
@@ -146,7 +151,11 @@ export default function BoardStrip({
           onClick={onToggleFullscreen}
           // Tokenised hover, not bg-black: on the lighter themes a black wash
           // reads as a hole punched in the toolbar rather than a hover state.
-          className="ml-auto flex size-7 shrink-0 items-center justify-center rounded-md text-swarm-textMuted transition-colors hover:bg-swarm-border/60 hover:text-swarm-text"
+          // No `ml-auto`: it shoved this button to the far right and left a dead
+          // stretch of toolbar between it and `+` that read as a missing group.
+          // The empty run at the right end is the window controls' reserved
+          // space (reserveRight), not a gap in the layout.
+          className="flex size-6.5 shrink-0 items-center justify-center rounded-md text-swarm-textMuted transition-colors hover:bg-swarm-border/60 hover:text-swarm-text"
           title={fullscreen ? "Restore" : "Maximize plane"}
           aria-label={fullscreen ? "Restore" : "Maximize plane"}
         >

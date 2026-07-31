@@ -100,7 +100,7 @@ export default function ThemePicker() {
               ref={menuRef}
               role="menu"
               aria-label="Choose theme"
-              className="fixed z-[201] w-[19rem] overflow-y-auto scrollbar-sleek rounded-xl glass-hi glass-sheen p-1.5 shadow-glassHi animate-fade-in"
+              className="fixed z-[201] w-[19rem] overflow-y-auto scrollbar-sleek rounded-xl glass-hi glass-sheen p-1.5 animate-fade-in"
               // Right-anchoring alone only guarded the right edge: with the
               // trigger near the left of a narrow window the panel ran off the
               // left instead. Eight themes at ~60px a row also overflow a short

@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { GripVertical } from 'lucide-react';
 
 interface ResizeHandleProps {
   direction: 'horizontal' | 'vertical';
@@ -74,31 +73,41 @@ export default function ResizeHandle({ direction, onResize, onResizeEnd, classNa
     <div
       role="separator"
       aria-orientation={horizontal ? 'horizontal' : 'vertical'}
+      // A focusable separator with no name is announced as just "separator".
+      aria-label={horizontal ? 'Resize rows' : 'Resize columns'}
       tabIndex={0}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onKeyDown={onKeyDown}
+      // The element itself is the hit area — 6px of layout plus 4px of overhang
+      // on each side (the -inset below), so ~14px to aim at. It paints nothing:
+      // a 6px painted bar between every pair of panes read as a second set of
+      // borders competing with the panes' own.
       className={`
-        group relative z-10 flex shrink-0 items-center justify-center
+        group relative z-10 flex shrink-0 items-center justify-center bg-transparent
         ${horizontal ? 'h-1.5 w-full cursor-row-resize' : 'h-full w-1.5 cursor-col-resize'}
-        ${dragging ? 'bg-swarm-gold' : 'bg-swarm-border/60 hover:bg-swarm-gold/60'}
-        touch-none select-none transition-colors duration-150
+        touch-none select-none
         focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-swarm-gold
         ${className}
       `}
     >
-      {/* A 6px strip is a coin-flip to hit with a mouse. This overhangs the
-          visual line by 4px on each side to give the pointer something to aim
-          at, without occupying any layout space of its own. */}
+      {/* Hit-area overhang. Absolute and inset-negative, so it costs no layout
+          space and cannot push the panes either side apart. */}
       <span
         aria-hidden
         className={`absolute ${horizontal ? '-inset-y-1 inset-x-0' : '-inset-x-1 inset-y-0'}`}
       />
-      <GripVertical
-        size={12}
-        className="pointer-events-none text-swarm-textMuted opacity-0 transition-opacity group-hover:opacity-100"
+      {/* The visible line: 1px, centred in the 6px strip. Grabbing is what the
+          pointer does here, so hover/drag light the line itself — the grip
+          glyph it replaced could not fit on a hairline and only ever appeared
+          after you had already found the handle. */}
+      <span
+        aria-hidden
+        className={`pointer-events-none absolute transition-colors ${
+          horizontal ? 'inset-x-0 h-px' : 'inset-y-0 w-px'
+        } ${dragging ? 'bg-swarm-gold' : 'bg-swarm-border group-hover:bg-swarm-gold/70'}`}
       />
     </div>
   );

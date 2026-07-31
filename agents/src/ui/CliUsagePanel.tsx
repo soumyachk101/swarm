@@ -183,6 +183,7 @@ export default function CliUsagePanel({ onClose }: { onClose?: () => void }) {
           onClick={refresh}
           className="ml-auto rounded p-1 text-swarm-textMuted transition-colors hover:bg-swarm-border/40 hover:text-swarm-text"
           title="Rescan transcripts"
+          aria-label="Rescan transcripts"
         >
           <RefreshCw className={`size-3.5 ${loading ? "animate-spin text-swarm-gold" : ""}`} />
         </button>
@@ -190,6 +191,8 @@ export default function CliUsagePanel({ onClose }: { onClose?: () => void }) {
           <button
             onClick={onClose}
             className="rounded p-1 text-swarm-textMuted transition-colors hover:bg-swarm-border/40 hover:text-swarm-text"
+            title="Close"
+            aria-label="Close plan limits"
           >
             <X className="size-3.5" />
           </button>

@@ -19,7 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isAlreadySpawned, markSpawned } from "./spawnGuard.js";
 import { useAgentsStore } from "./agentsStore.js";
-import { PANE_HEADER_CLASS, themeForKind } from "@swarm/board";
+import { PANE_HEADER_CLASS, PANE_TITLE_CLASS, themeForKind } from "@swarm/board";
 import {
   THEME_CHANGE_EVENT,
   buildXtermThemeFromDom,
@@ -502,13 +502,27 @@ export default function TerminalPane({
           ) : (
             <span
               onDoubleClick={onRename}
-              className="flex min-w-0 items-center gap-1.5 truncate text-xs text-swarm-text font-medium cursor-pointer hover:text-swarm-textDim transition-colors"
+              className={`flex min-w-0 items-center gap-1.5 truncate text-xs font-medium cursor-pointer hover:text-swarm-goldHi transition-colors ${PANE_TITLE_CLASS}`}
               title={displayName}
             >
+              {/* Same dot language as an agent pane: class colour only, status
+                  as motion/halo — a shell that never printed a prompt used to
+                  look identical to a live one. */}
               <span
-                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                style={{ background: themeForKind("shell").accent }}
-                title="Shell terminal"
+                className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                  status === "connecting" ? "animate-pulse" : ""
+                }`}
+                style={{
+                  background: themeForKind("shell").accent,
+                  boxShadow: status === "error" ? "0 0 0 2px rgb(var(--swarm-err) / 0.85)" : undefined,
+                }}
+                title={
+                  status === "error"
+                    ? "Shell terminal — failed to start"
+                    : status === "connecting"
+                      ? "Shell terminal — starting…"
+                      : "Shell terminal — running"
+                }
               />
               <span className="truncate">{displayName}</span>
             </span>
@@ -528,6 +542,7 @@ export default function TerminalPane({
               onClick={onToggleMaximize}
               className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
               title={isMaximized ? "Restore" : "Maximize"}
+              aria-label={isMaximized ? "Restore" : "Maximize"}
             >
               {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
             </button>
@@ -536,6 +551,7 @@ export default function TerminalPane({
             onClick={handleCopy}
             className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
             title="Copy selection"
+            aria-label="Copy selection"
           >
             <Copy size={12} />
           </button>
@@ -543,6 +559,7 @@ export default function TerminalPane({
             onClick={handleClear}
             className="p-1.5 rounded-md hover:bg-swarm-border/60 text-swarm-textDim hover:text-swarm-text transition-colors"
             title="Clear terminal"
+            aria-label="Clear terminal"
           >
             <Eraser size={12} />
           </button>
@@ -554,6 +571,7 @@ export default function TerminalPane({
               }}
               className="p-1.5 rounded-md text-swarm-textDim hover:bg-swarm-err/25 hover:text-swarm-err transition-colors"
               title={closeIconType === "close" ? "Collapse terminal" : "Close terminal"}
+              aria-label={closeIconType === "close" ? "Collapse terminal" : "Close terminal"}
             >
               {closeIconType === "close" ? <X size={12} /> : <Trash2 size={12} />}
             </button>
@@ -571,23 +589,38 @@ export default function TerminalPane({
         <div ref={terminalRef} className="absolute inset-2 overflow-hidden" />
 
         {/* Until the shell prints something this is a black rectangle that
-            looks broken; a failed spawn was one red line in it. */}
+            looks broken; a failed spawn was one red line in it.
+            No `animate-fade-in` and no backdrop-blur: that keyframe animates
+            translateY, and a transform over a live terminal makes xterm
+            rasterise its glyph atlas at the wrong scale. The blur was invisible
+            anyway — this sits on an opaque terminal. */}
         {status !== "running" && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none glass-inset backdrop-blur-[2px] animate-fade-in px-4 text-center">
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none glass-inset px-4 text-center">
             {status === "error" ? (
               <>
                 <AlertTriangle size={18} className="text-swarm-err" />
-                <span className="text-xs text-swarm-textDim">Shell failed to start</span>
+                <span className="text-xs text-swarm-textDim">
+                  {shellLabel ?? shellCommand ?? "Shell"} failed to start
+                </span>
                 {errorText && (
                   <span className="text-mini text-swarm-textMuted max-w-[260px] break-words">
                     {errorText.slice(0, 160)}
                   </span>
                 )}
+                {/* The error above is the OS's, and the OS's answer to every
+                    spawn failure is the same two things: is it installed, and
+                    does this folder still exist. */}
+                <span className="text-mini text-swarm-textMuted max-w-[260px]">
+                  Check that the shell is on your PATH and the pane's folder
+                  still exists.
+                </span>
               </>
             ) : (
               <>
                 <Loader2 size={18} className="text-swarm-gold animate-spin" />
-                <span className="text-xs text-swarm-textMuted">Starting shell…</span>
+                <span className="text-xs text-swarm-textMuted">
+                  Starting {shellLabel ?? shellCommand ?? "shell"}…
+                </span>
               </>
             )}
           </div>

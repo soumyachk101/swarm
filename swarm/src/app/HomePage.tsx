@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import PlaneHost from "@/features/panes/PlaneHost";
 import { usePlaneStore } from "@/features/panes/planeStore";
 import { TasksPanel } from "@swarm/tasks";
@@ -38,13 +38,37 @@ import OverflowMenu from "@/shared/OverflowMenu";
 
 
 /**
- * Width of the floating window-control cluster at the top right. Columns that
- * reach that corner reserve this much so nothing hides underneath it.
+ * Live width of an element, or 0 when it isn't mounted.
+ *
+ * The window-control cluster's width used to be a hardcoded 142. It happened to
+ * be right, which is worse than being wrong: adding one button to that corner
+ * silently slides the board strip's `+` underneath the overlay, where it can't
+ * be clicked. Measuring costs one observer and can't drift.
  */
-const WINDOW_CONTROLS_WIDTH = 142;
+function useMeasuredWidth(initial = 0) {
+  const [width, setWidth] = useState(initial);
+  const observer = useRef<ResizeObserver | null>(null);
+  // A callback ref, not useRef+useEffect: the elements measured here mount and
+  // unmount with the dock, and React hands the callback `null` on unmount so
+  // the width drops to 0 instead of freezing at the last dock size.
+  const ref = useCallback((el: HTMLElement | null) => {
+    observer.current?.disconnect();
+    if (!el) {
+      setWidth(0);
+      return;
+    }
+    const measure = () => setWidth(el.getBoundingClientRect().width);
+    observer.current = new ResizeObserver(measure);
+    observer.current.observe(el);
+    measure();
+  }, []);
+  return [ref, width] as const;
+}
 
 export default function HomePage() {
   const [isMaximized, setIsMaximized] = useState(false);
+  const [windowControlsRef, windowControlsWidth] = useMeasuredWidth(142);
+  const [dockRef, dockWidth] = useMeasuredWidth();
   const [showSettings, setShowSettings] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
   const [showUsage, setShowUsage] = useState(false);
@@ -67,7 +91,13 @@ export default function HomePage() {
   // re-rendered the entire shell (and every dock/pane inside it) on each
   // agent-store tick, which is what made resizing and typing feel sticky.
   const agentStatuses = useAgentsStore((state) => state.agentStatuses);
+  // A scalar selector, so this re-renders on a count change and not on every
+  // mutation of the agents array.
+  const totalAgents = useAgentsStore((state) => state.agents.length);
   const refitTerminals = useAgentsStore((state) => state.refitTerminals);
+  const statusList = Object.values(agentStatuses);
+  const busyAgents = statusList.filter((s) => s === "running" || s === "launching").length;
+  const erroredAgents = statusList.filter((s) => s === "error").length;
   const workspaces = useWorkspaceStore((s) => s.workspaces);
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   const boardOpen = useWorkspaceStore((s) => s.boardOpen);
@@ -347,6 +377,7 @@ export default function HomePage() {
         handler fired for double-clicks on the buttons as well.
       */}
       <div
+        ref={windowControlsRef}
         className="fixed right-0 top-0 z-[60] flex h-11 items-center gap-1 px-2"
         data-tauri-drag-region="deep"
       >
@@ -458,12 +489,13 @@ export default function HomePage() {
                   </button>
                 )
               }
-              // Only the centre column runs under the floating controls; when
-              // the dock is open it covers that corner itself. Keyed off
-              // dockVisible, not rightOpen: a fullscreen plane hides the dock
-              // while rightOpen is still true, and the strip's right end was
-              // sliding under the window controls there.
-              reserveRight={dockVisible ? 0 : WINDOW_CONTROLS_WIDTH}
+              // Only the centre column runs under the floating controls; the
+              // dock covers whatever part of that corner it occupies. Measured
+              // rather than "0 when the dock is open": folded to its icon rail
+              // the dock is 44px wide and the strip's `+` went back under the
+              // controls. A fullscreen plane unmounts the dock, which drops its
+              // width to 0 and reserves the full cluster again.
+              reserveRight={Math.max(0, windowControlsWidth - (dockVisible ? dockWidth : 0))}
             />
           )}
           {/* Tasks is docked to the center, outside the plane, so switching
@@ -487,6 +519,7 @@ export default function HomePage() {
             used to render did nothing at all, so it is gone. */}
         {dockVisible && (
           <div
+            ref={dockRef}
             className="relative flex-shrink-0"
             // The dock reaches the window's top-right corner, where the
             // window controls float. Start its content below them.
@@ -497,17 +530,30 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* Status Bar */}
-      <div className="h-6 glass-toolbar border-t border-swarm-border/60 flex items-center justify-between px-3 text-mini text-swarm-textDim">
-        <div className="flex items-center gap-4">
-          <span className="flex items-center gap-1.5 text-swarm-gold">
-            <GitBranch size={11} />
-            {gitStatus?.branch ?? "no repo"}
+      {/* Status bar. It used to spend a whole row on the word "no repo"; it now
+          carries the four things worth glancing at — where you are, what the
+          repo looks like, and whether anything is running or has failed. */}
+      <div className="h-6 glass-toolbar border-t border-swarm-border/60 flex items-center gap-3 px-3 text-mini text-swarm-textDim">
+        {projectPath && (
+          <span className="min-w-0 truncate text-swarm-textMuted" title={projectPath}>
+            {projectPath.split(/[\\/]/).filter(Boolean).pop()}
           </span>
-          {gitStatus && gitStatus.changed > 0 && (
-            <span className="text-swarm-textMuted">{gitStatus.changed} changed</span>
+        )}
+        <span className="flex shrink-0 items-center gap-1.5 text-swarm-gold" title={gitStatus ? `On branch ${gitStatus.branch}` : "Not a git repository"}>
+          <GitBranch size={11} />
+          <span className="max-w-[24ch] truncate">{gitStatus?.branch ?? "no repo"}</span>
+        </span>
+        {gitStatus && gitStatus.changed > 0 && (
+          <span className="shrink-0 text-swarm-textMuted">{gitStatus.changed} changed</span>
+        )}
+        <span className="ml-auto flex shrink-0 items-center gap-3">
+          {erroredAgents > 0 && (
+            <span className="text-swarm-err">{erroredAgents} failed</span>
           )}
-        </div>
+          <span title={`${busyAgents} of ${totalAgents} agents working`}>
+            {busyAgents}/{totalAgents} active
+          </span>
+        </span>
       </div>
 
       {showSettings && <SettingsPage onClose={() => setShowSettings(false)} />}
