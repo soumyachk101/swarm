@@ -1,0 +1,399 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Self-hosted variable fonts (bundled by Vite) — the app is local-first, so
+   no runtime Google Fonts fetch. Geist for UI, Geist Mono for terminals. */
+@font-face {
+  font-family: 'Geist';
+  src: url('../assets/fonts/geist.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('../assets/fonts/geist-mono.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Design tokens — RGB channel triplets so Tailwind opacity modifiers work.
+   ThemePicker swaps these via documentElement; Hive (default) matches current look. */
+:root,
+[data-theme="hive"] {
+  --font-sans: 'Geist', sans-serif;
+  --font-mono: 'Geist Mono', monospace;
+  --bee-canvas: 20 16 14;
+  --bee-canvas-hi: 28 22 19;
+  --bee-surface: 36 31 28;
+  --bee-surface-hi: 43 36 32;
+  --bee-border: 61 46 31;
+  --bee-border-hi: 74 56 38;
+  --bee-gold: 201 162 39;
+  --bee-gold-hi: 212 184 74;
+  --bee-gold-dim: 154 114 6;
+  --bee-honey: 232 197 71;
+  --bee-amber: 184 134 11;
+  --bee-text: 245 240 230;
+  --bee-text-dim: 201 184 150;
+  --bee-text-muted: 138 123 92;
+  --bee-ok: 143 174 122;
+  --bee-warn: 208 164 63;
+  --bee-err: 198 107 90;
+  /* Hex mirrors (JS/SVG); applyTheme keeps these in sync with channel tokens */
+  --bee-canvas-hex: #14100e;
+  --bee-canvas-hi-hex: #1c1613;
+  --bee-surface-hex: #241f1c;
+  --bee-surface-hi-hex: #2b2420;
+  --bee-border-hex: #3d2e1f;
+  --bee-border-hi-hex: #4a3826;
+  --bee-gold-hex: #c9a227;
+  --bee-gold-hi-hex: #d4b84a;
+  --bee-gold-dim-hex: #9a7206;
+  --bee-honey-hex: #e8c547;
+  --bee-amber-hex: #b8860b;
+  --bee-text-hex: #f5f0e6;
+  --bee-text-dim-hex: #c9b896;
+  --bee-text-muted-hex: #8a7b5c;
+  --bee-ok-hex: #8fae7a;
+  --bee-warn-hex: #d0a43f;
+  --bee-err-hex: #c66b5a;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow: hidden;
+  color: rgb(var(--bee-text));
+  background-color: rgb(var(--bee-canvas));
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01';
+  letter-spacing: -0.008em;
+}
+
+/* Terminal panes and code keep tabular figures so columns never wobble */
+.font-mono, code, kbd, pre {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Global scrollbar — extremely thin, themed, unobtrusive. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--bee-gold) / 0.3) transparent;
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--bee-gold) / 0.28);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--bee-gold) / 0.55);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* xterm manages its own scroll — hide its viewport bar (wheel still works) */
+.xterm-viewport {
+  scrollbar-width: none;
+}
+.xterm-viewport::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Global input & autofill — follow active theme tokens */
+input, select, textarea {
+  color: rgb(var(--bee-text)) !important;
+  caret-color: rgb(var(--bee-gold));
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-text-fill-color: rgb(var(--bee-text)) !important;
+  -webkit-box-shadow: 0 0 0px 1000px rgb(var(--bee-canvas-hi)) inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Kill Chromium's default blue focus ring on pointer focus — components draw
+   their own accent ring. :focus-visible is deliberately NOT killed here: that
+   is the keyboard user's only way to see where they are. */
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none !important;
+  box-shadow: none;
+}
+
+/* One keyboard focus ring for the whole app, in the active theme's accent.
+   Applies to every package's buttons too — they all render into this document. */
+:focus-visible {
+  outline: 2px solid rgb(var(--bee-gold));
+  outline-offset: 1px;
+  border-radius: inherit;
+}
+
+/* xterm draws its own cursor; a ring around the canvas is noise. */
+.xterm-helper-textarea:focus-visible,
+.xterm textarea:focus-visible {
+  outline: none;
+}
+
+/* Motion is decoration here, never information. Strip it on request. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Blur is expensive and, for some viewers, unreadable. Fall back to solid.
+   The gradients go too: a tint gradient over an opaque fill just looks dirty. */
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .glass-hi, .glass-toolbar, .glass-rail, .glass-inset, .glass-body {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background-image: none !important;
+  }
+  .glass, .glass-toolbar, .glass-rail { background-color: rgb(var(--bee-surface)) !important; }
+  .glass-hi { background-color: rgb(var(--bee-surface-hi)) !important; }
+  .glass-inset { background-color: rgb(var(--bee-canvas)) !important; }
+  .glass-body { background-color: rgb(var(--bee-canvas-hi)) !important; }
+  .glass-sheen::before { display: none; }
+}
+
+@layer components {
+  /* Themed canvas — the backdrop everything floats over */
+  .app-canvas {
+    background-color: rgb(var(--bee-canvas));
+    background-image:
+      radial-gradient(1200px 700px at 15% -10%, rgb(var(--bee-gold) / 0.10), transparent 60%),
+      radial-gradient(1000px 800px at 100% 0%, rgb(var(--bee-gold-dim) / 0.10), transparent 55%),
+      radial-gradient(900px 900px at 50% 120%, rgb(var(--bee-border) / 0.35), transparent 60%),
+      repeating-linear-gradient(60deg, rgb(var(--bee-gold) / 0.028) 0 1px, transparent 1px 26px),
+      repeating-linear-gradient(-60deg, rgb(var(--bee-gold) / 0.028) 0 1px, transparent 1px 26px),
+      linear-gradient(180deg, rgb(var(--bee-canvas-hi)), rgb(var(--bee-canvas)));
+  }
+
+  /*
+   * The glass system. One material, four elevations. Every value is a --bee-*
+   * token, so all eight themes get the same glass and none of them needs its
+   * own rules.
+   *
+   * What makes it read as glass rather than "a panel at 70% opacity":
+   *   - a top-to-bottom tint gradient, so the sheet has a light direction;
+   *   - `saturate()` in the backdrop filter, so colour behind it blooms
+   *     through instead of going grey;
+   *   - a bright 1px inset at the top edge and a dark one at the bottom, which
+   *     is what a real pane of glass does to light at its edges;
+   *   - a shadow tinted with the theme's own hue rather than pure black.
+   */
+
+  /*
+   * The HoneyFlow canvas floor. Two dot grids at a 1:5 ratio — a fine one for
+   * placement and a brighter one every fifth cell, so distance is still
+   * readable when zoomed out and the fine grid has collapsed into fog. Over
+   * the same warm depth wash the app canvas uses, so the canvas reads as part
+   * of the hive rather than a blank document.
+   */
+  .canvas-surface {
+    background-color: rgb(var(--bee-canvas));
+    background-image:
+      radial-gradient(circle at center, rgb(var(--bee-text) / 0.10) 1px, transparent 1.2px),
+      radial-gradient(circle at center, rgb(var(--bee-gold) / 0.18) 1.4px, transparent 1.6px),
+      radial-gradient(1000px 640px at 12% -8%, rgb(var(--bee-gold) / 0.09), transparent 62%),
+      radial-gradient(900px 720px at 92% 4%, rgb(var(--bee-gold-dim) / 0.08), transparent 58%),
+      linear-gradient(180deg, rgb(var(--bee-canvas-hi)), rgb(var(--bee-canvas)));
+    background-repeat: repeat, repeat, no-repeat, no-repeat, no-repeat;
+  }
+
+  /* Elevation 0: title bars, strips, pane headers. Sits ON something. */
+  .glass-toolbar {
+    background-image: linear-gradient(
+      180deg,
+      rgb(var(--bee-surface-hi) / 0.82),
+      rgb(var(--bee-surface) / 0.68)
+    );
+    backdrop-filter: blur(16px) saturate(1.5);
+    -webkit-backdrop-filter: blur(16px) saturate(1.5);
+    box-shadow:
+      inset 0 1px 0 0 rgb(var(--bee-text) / 0.07),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.22);
+  }
+
+  /* Elevation 1: panes and cards. Floats over the canvas. */
+  .glass {
+    background-image: linear-gradient(
+      165deg,
+      rgb(var(--bee-surface-hi) / 0.74),
+      rgb(var(--bee-surface) / 0.58) 55%,
+      rgb(var(--bee-canvas-hi) / 0.62)
+    );
+    backdrop-filter: blur(18px) saturate(1.6);
+    -webkit-backdrop-filter: blur(18px) saturate(1.6);
+    border: 1px solid rgb(var(--bee-border) / 0.55);
+    box-shadow:
+      0 10px 30px -14px rgb(0 0 0 / 0.62),
+      0 2px 8px -4px rgb(var(--bee-gold) / 0.06),
+      inset 0 1px 0 0 rgb(var(--bee-text) / 0.09),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.25);
+    transition: box-shadow 0.24s ease, border-color 0.24s ease;
+  }
+
+  /* Elevation 2: dropdowns, dialogs, popovers. Floats over panes. */
+  .glass-hi {
+    background-image: linear-gradient(
+      165deg,
+      rgb(var(--bee-surface-hi) / 0.9),
+      rgb(var(--bee-surface) / 0.8) 60%,
+      rgb(var(--bee-canvas-hi) / 0.84)
+    );
+    backdrop-filter: blur(28px) saturate(1.7);
+    -webkit-backdrop-filter: blur(28px) saturate(1.7);
+    border: 1px solid rgb(var(--bee-border) / 0.75);
+    box-shadow:
+      0 20px 48px -18px rgb(0 0 0 / 0.72),
+      0 4px 14px -6px rgb(var(--bee-gold) / 0.08),
+      inset 0 1px 0 0 rgb(var(--bee-text) / 0.12),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.3);
+  }
+
+  /*
+   * A pane's content area. Translucent enough that the glass frame and the
+   * canvas behind it are genuinely visible through the pane, opaque enough
+   * that a terminal full of small text stays crisp. That balance is the whole
+   * job: below about 0.78 the dot grid starts showing through code.
+   */
+  .glass-body {
+    background-image: linear-gradient(
+      180deg,
+      rgb(var(--bee-canvas-hi) / 0.86),
+      rgb(var(--bee-canvas) / 0.8)
+    );
+    backdrop-filter: blur(20px) saturate(1.35);
+    -webkit-backdrop-filter: blur(20px) saturate(1.35);
+  }
+
+  /* Elevation -1: inputs, wells, anything that reads as cut INTO the glass. */
+  .glass-inset {
+    background-image: linear-gradient(
+      180deg,
+      rgb(var(--bee-canvas) / 0.72),
+      rgb(var(--bee-canvas-hi) / 0.5)
+    );
+    border: 1px solid rgb(var(--bee-border) / 0.6);
+    box-shadow:
+      inset 0 1px 3px 0 rgb(0 0 0 / 0.35),
+      inset 0 -1px 0 0 rgb(var(--bee-text) / 0.04);
+  }
+
+  /* A vertical rail: sidebars and docks, glass with one lit edge. */
+  .glass-rail {
+    background-image: linear-gradient(
+      180deg,
+      rgb(var(--bee-surface) / 0.7),
+      rgb(var(--bee-canvas-hi) / 0.62)
+    );
+    backdrop-filter: blur(20px) saturate(1.5);
+    -webkit-backdrop-filter: blur(20px) saturate(1.5);
+    box-shadow: inset -1px 0 0 0 rgb(var(--bee-text) / 0.05);
+  }
+
+  /* Lift on hover. Paired with .glass on anything interactive. */
+  .shadow-glass-lg {
+    box-shadow:
+      0 16px 38px -14px rgb(0 0 0 / 0.7),
+      0 3px 10px -4px rgb(var(--bee-gold) / 0.1),
+      inset 0 1px 0 0 rgb(var(--bee-text) / 0.13),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.28);
+  }
+
+  /* A specular sweep across the top of a sheet. Opt-in: too much of this and
+     the UI turns into a showroom. Used on the biggest surfaces only. */
+  .glass-sheen {
+    position: relative;
+    isolation: isolate;
+  }
+  .glass-sheen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    pointer-events: none;
+    background: radial-gradient(
+      120% 80% at 12% -20%,
+      rgb(var(--bee-text) / 0.08),
+      transparent 62%
+    );
+  }
+
+  /* Active pane — clear accent glow when its input/terminal is focused.
+     Thicker border + outer glow so focus reads at a glance across a grid
+     of similarly-themed panes, not just a 1px edge. */
+  .pane-active {
+    border-width: 2px !important;
+    border-color: rgb(var(--bee-gold) / 0.75) !important;
+    box-shadow: 0 0 0 1px rgb(var(--bee-gold) / 0.45),
+      0 0 0 4px rgb(var(--bee-gold) / 0.18),
+      0 10px 30px -14px rgb(var(--bee-gold) / 0.5),
+      inset 0 1px 0 0 rgb(var(--bee-text) / 0.05);
+  }
+
+  /* Sleek customized scrollbar */
+  .scrollbar-sleek::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  .scrollbar-sleek::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-sleek::-webkit-scrollbar-thumb {
+    background: rgb(var(--bee-gold) / 0.25);
+    border-radius: 999px;
+  }
+
+  .scrollbar-sleek::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--bee-gold) / 0.5);
+  }
+
+  /* Hairline horizontal scrollbar — for the tab strip */
+  .scrollbar-hair::-webkit-scrollbar {
+    width: 3px;
+    height: 3px;
+  }
+  .scrollbar-hair::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-hair::-webkit-scrollbar-thumb {
+    background: rgb(var(--bee-gold) / 0.25);
+    border-radius: 999px;
+  }
+  .scrollbar-hair::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--bee-gold) / 0.5);
+  }
+}

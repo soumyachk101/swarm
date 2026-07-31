@@ -1,0 +1,65 @@
+# Dependencies
+node_modules
+/node_modules
+.pnpm-store
+
+.claude/
+.agents/
+.cursor/
+
+
+# Build outputs
+dist
+.next
+out
+
+# Turbo cache (local, machine-specific, regenerated on every build)
+.turbo
+/.turbo
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Nectar
+.nectar/
+nectar.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Testing
+coverage
+.playwright
+
+# Rust (for Hive)
+target
+Cargo.lock
+AGENTS.md
+AGENTS1.md
+TESTCASE.md
+MIGRATION_REPORT.md
+/orca
+SIMILAR.md
+TESTAGENTS.md
+SECURITY.md
+MODES.md
+/hiveory-landing-page
+Glasschat.md
+/landing-page
